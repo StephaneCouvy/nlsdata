@@ -3,7 +3,7 @@ import pandas as pd
 from nlsoci.oci_bucket import *
 from nlstools.config_settings import *
 from nlstools.tool_kits import *
-from dbwrapper_factory import *
+from nlsdb.dbwrapper_factory import *
 
 PARQUET_IDX_DIGITS = 4
 PANDAS_CHUNKSIZE = 100000
