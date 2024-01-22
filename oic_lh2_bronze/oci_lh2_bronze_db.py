@@ -49,7 +49,7 @@ class BronzeSourceBuilderDb(BronzeSourceBuilder):
                         if self.df_table_content.empty:
                             break
                         # update total count of imported rows
-                        self.__update_fetch_stats__()
+                        self.__update_fetch_row_stats__()
                         elapsed = datetime.now() -self.fetch_start
                         if verbose:
                             message = "{0} rows in {1} seconds".format(self.total_rows_imported,elapsed)
@@ -64,7 +64,7 @@ class BronzeSourceBuilderDb(BronzeSourceBuilder):
                     for df_chunk in pd.read_sql(sql=self.request,con=self.source_db_connection,chunksize=PANDAS_CHUNKSIZE):
                         self.df_table_content = pd.concat([self.df_table_content,df_chunk])
                         ## update total count of imported rows
-                        self.__update_fetch_stats__()
+                        self.__update_fetch_row_stats__()
                         elapsed = datetime.now() - self.fetch_start
                         if verbose:
                             message = "{0} rows in {1} seconds".format(self.total_rows_imported,elapsed)
@@ -77,19 +77,19 @@ class BronzeSourceBuilderDb(BronzeSourceBuilder):
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "FETCH", "ERROR", log_message=message)
             self.logger.log_error(error=message, action="fetch_source Unicode Error")
-            self.__update_fetch_stats__()
+            self.__update_fetch_row_stats__()
             return False
         except oracledb.Error as err:
             message = "Error fetch, Oracle DB error : {}".format(str(err))
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "FETCH", "ERROR", log_message=message,log_request = self.request)
             self.logger.log_error(error=message, action = "Oracle error")
-            self.__update_fetch_stats__()
+            self.__update_fetch_row_stats__()
             return False
         except Exception as err:
             message = "Error Fetch: {}".format(str(err))
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "FETCH", "ERROR", log_message=message)
             self.logger.log_error(error=message, action = "Error fetch")
-            self.__update_fetch_stats__()
+            self.__update_fetch_row_stats__()
             return False
