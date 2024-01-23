@@ -9,6 +9,7 @@ class BronzeSourceBuilderFile(BronzeSourceBuilder):
         self.bronze_table = self.src_name + "_" + self.src_table.replace(" ", "_")
         self.bucket_file_path = self.src_table.replace(" ", "_") + "/" + self.year + "/" + self.month + "/" + self.day + "/"
         self.parquet_file_id = self.__get_last_parquet_idx_in_bucket__()
+        self.request = "Import File"
 
     def fetch_source(self,verbose=None):
         try:

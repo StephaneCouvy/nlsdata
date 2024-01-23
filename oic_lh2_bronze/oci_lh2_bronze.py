@@ -7,7 +7,7 @@ from nlstools.config_settings import *
 from nlstools.tool_kits import *
 from nlsdb.dbwrapper_factory import *
 
-PARQUET_IDX_DIGITS = 4
+PARQUET_IDX_DIGITS = 5
 PANDAS_CHUNKSIZE = 100000
 # Variables could be redefined by json config file
 DB_ARRAYSIZE = 50000
@@ -47,9 +47,11 @@ class BronzeConfig():
 
         if self.options.rootdir != '':
             os.chdir(self.options.rootdir)
+        self.rootdir = os.getcwd()
         # Create a temporary directory if it doesn't exist
         if not os.path.exists(self.options.tempdir):
             os.makedirs(self.options.tempdir)
+        self.fullpath_tempdir = os.path.join(self.rootdir,self.options.tempdir)
 
     def get_configuration_file(self):
         return self.configuration_file
@@ -66,6 +68,10 @@ class BronzeConfig():
     def isdebugmode(self):
         return self.debug
 
+    def get_rootdir(self):
+        return self.rootdir
+    def get_tempdir(self):
+        return self.fullpath_tempdir
 
 class BronzeExploit:
     # Iterator object for list of sources to be imported into Bronze
@@ -159,7 +165,7 @@ class BronzeLogger():
             #Generate attributs of logger from table
             attr_list = list(self.db.get_table_columns(self.table_name).keys())
             self.BronzeLoggerProperties = namedtuple('BronzeLoggerProperties',attr_list)
-            self.instance_bronzeloggerproperties = self.BronzeLoggerProperties(START_TIME=datetime.now(tz=timezone.utc),END_TIME=None, SRC_TYPE='',ACTION='',SRC_NAME='',SRC_ORIGIN_NAME='',SRC_OBJECT_NAME='',SQL_REQUEST='',ERROR_TYPE='',ERROR_MESSAGE='',STAT_ROWS_COUNT=0,STAT_ROWS_SIZE=0,STAT_TOTAL_DURATION=0,STAT_FETCH_DURATION=0,STAT_UPLOAD_PARQUETS_DURATION=0,STAT_SENT_PARQUETS_COUNT=0,STAT_SENT_PARQUETS_SIZE=0)
+            self.instance_bronzeloggerproperties = self.BronzeLoggerProperties(START_TIME=datetime.now(tz=timezone.utc),END_TIME=None, ENVIRONMENT=self.env,ACTION='',SRC_NAME='',SRC_ORIGIN_NAME='',SRC_OBJECT_NAME='',REQUEST='',ERROR_TYPE='',ERROR_MESSAGE='',STAT_ROWS_COUNT=0,STAT_ROWS_SIZE=0,STAT_TOTAL_DURATION=0,STAT_FETCH_DURATION=0,STAT_UPLOAD_PARQUETS_DURATION=0,STAT_SENT_PARQUETS_COUNT=0,STAT_SENT_PARQUETS_SIZE=0)
 
     def link_to_bronze_source(self,br_source):
         self.bronze_source = br_source
@@ -174,8 +180,9 @@ class BronzeLogger():
         vSourceDurationsStats = self.bronze_source.get_durations_stats()
         vSourceRowsStats = self.bronze_source.get_rows_stats()
         vSourceParquetsStats = self.bronze_source.get_parquets_stats()
+        vSourceProperties = self.bronze_source.get_source_properties()
 
-        self.instance_bronzeloggerproperties = self.instance_bronzeloggerproperties._replace(END_TIME=datetime.now(tz=timezone.utc),STAT_ROWS_COUNT=vSourceRowsStats[0],STAT_ROWS_SIZE=vSourceRowsStats[1],STAT_PARQUETS_COUNT=vSourceParquetsStats[0],STAT_PARQUETS_SIZE=vSourceParquetsStats[1],STAT_TOTAL_DURATION=vSourceDurationsStats[0],STAT_FETCH_DURATION=vSourceDurationsStats[1],STAT_UPLOAD_PARQUETS_DURATION=vSourceDurationsStats[2])
+        self.instance_bronzeloggerproperties = self.instance_bronzeloggerproperties._replace(REQUEST=vSourceProperties.request,ACTION=self.action,END_TIME=datetime.now(tz=timezone.utc),STAT_ROWS_COUNT=vSourceRowsStats[0],STAT_ROWS_SIZE=vSourceRowsStats[1],STAT_SENT_PARQUETS_COUNT=vSourceParquetsStats[0],STAT_SENT_PARQUETS_SIZE=vSourceParquetsStats[1],STAT_TOTAL_DURATION=vSourceDurationsStats[0],STAT_FETCH_DURATION=vSourceDurationsStats[1],STAT_UPLOAD_PARQUETS_DURATION=vSourceDurationsStats[2])
         self.__insertlog__()
 
     def log_error(self, action="ERROR",error=Exception()):
@@ -195,15 +202,22 @@ class BronzeLogger():
         self.__log__()
 
     def __insertlog__(self):
-        # Format the timestamps as strings with a specific format (Year-Month-Day Hour:Minute:Second)
-        start_time_str = self.start_time.strftime("%Y-%m-%d %H:%M:%S")
-        end_time_str = self.end_time.strftime("%Y-%m-%d %H:%M:%S")
-
         # Define the SQL query to insert a log into the table
-        sql = f"""INSERT INTO {self.table_name} 
-                {self.instance_bronzeloggerproperties._fields} VALUES  
-                (TO_TIMESTAMP(:1, 'YYYY-MM-DD HH24:MI:SS'), TO_TIMESTAMP(:2, 'YYYY-MM-DD HH24:MI:SS'), :3, :4, :5, :6, :7, :8, :9, :10, :11, :12, :13, :14, :15, :16, :17)"""
+        columns = ''
+        for col in self.instance_bronzeloggerproperties._fields:
+            columns += col + ', '
+        columns = columns.rstrip(', ')
+
+        args = ''
+        for i in range(1,len(self.instance_bronzeloggerproperties._fields)+1):
+            args += ':{}, '.format(i)
+        args  = args.rstrip(', ')
+
+        sql = f"""INSERT INTO {self.table_name} ({columns}) VALUES ({args})"""
+
         print(sql)
+        print(tuple(self.instance_bronzeloggerproperties))
+        print(self.instance_bronzeloggerproperties._asdict())
         # Execute the SQL query with the provided parameters
         self.cur.execute(sql, tuple(self.instance_bronzeloggerproperties))
 
@@ -239,7 +253,7 @@ class BronzeSourceBuilder:
         self.force_encode = force_encode
 
         # Create "tmp" folder to save parquet files
-        self.__set_local_workgingdir__(self.bronze_config.get_options().tempdir)
+        self.__set_local_workgingdir__(self.bronze_config.get_tempdir())
 
         self.parquet_file_name_template = self.src_name + "_" + self.src_table.replace(" ", "_")
         self.parquet_file_id = 0
@@ -313,7 +327,7 @@ class BronzeSourceBuilder:
 
     def __update_fetch_row_stats__(self):
         self.total_rows_imported += len(self.df_table_content)
-        self.total_rows_size_imported += self.df_table_content.memory_usage(deep=True).sum()
+        self.total_rows_size_imported += int(self.df_table_content.memory_usage(deep=True).sum())
         if self.fetch_start:
             self.fetch_duration = datetime.now() - self.fetch_start
 
@@ -322,6 +336,8 @@ class BronzeSourceBuilder:
         for p in self.parquet_file_list_tosend:
             source_file = p["source_file"]
             self.total_parquet_sent_size += os.path.getsize(source_file)
+            # Deleting temp file
+            os.remove(source_file)
         if self.send_parquet_start:
             self.send_parquet_duration = datetime.now() - self.send_parquet_start
 
@@ -471,7 +487,8 @@ class BronzeSourceBuilder:
             else:
                 # Create external table linked to ONE parquet file (for non incremental mode)
                 root_path = self.bucket_file_path
-                create = 'BEGIN DBMS_CLOUD.CREATE_EXTERNAL_TABLE(table_name =>\'' + table + '\',credential_name =>\'' + self.env + '_CRED_NAME\', file_uri_list =>\'https://objectstorage.eu-frankfurt-1.oraclecloud.com/n/frysfb5gvbrr/b/' + self.bucketname + '/o/'+root_path+ self.parquet_file_name_template + '.parquet\', format => \'{"type":"parquet", "schema": "first"}\'); END;'
+                #create = 'BEGIN DBMS_CLOUD.CREATE_EXTERNAL_TABLE(table_name =>\'' + table + '\',credential_name =>\'' + self.env + '_CRED_NAME\', file_uri_list =>\'https://objectstorage.eu-frankfurt-1.oraclecloud.com/n/frysfb5gvbrr/b/' + self.bucketname + '/o/'+root_path+ self.parquet_file_name_template + '.parquet\', format => \'{"type":"parquet", "schema": "first"}\'); END;'
+                create = 'BEGIN DBMS_CLOUD.CREATE_EXTERNAL_TABLE(table_name =>\'' + table + '\',credential_name =>\'' + self.env + '_CRED_NAME\', file_uri_list =>\'https://frysfb5gvbrr.objectstorage.eu-frankfurt-1.oci.customer-oci.com/n/frysfb5gvbrr/b/' + self.bucketname + '/o/' + root_path + self.parquet_file_name_template + '.parquet\', format => \'{"type":"parquet", "schema": "first"}\'); END;'
             if verbose:
                 message = "Creating table {} : {}".format(table,create)
                 verbose.log(datetime.now(tz=timezone.utc), "CREATE_TABLE", "START", log_message=message)
@@ -501,7 +518,7 @@ class BronzeSourceBuilder:
     def get_rows_stats(self):
         return (self.total_rows_imported,self.total_rows_size_imported)
 
-    def get_durations(self):
+    def get_durations_stats(self):
         return (self.total_duration,self.fetch_duration,self.send_parquet_duration)
 
     def get_parquets_stats(self):
@@ -548,7 +565,7 @@ class BronzeSourceBuilder:
             # Use 2nd alternative to merge parquet file based on same root names - based on duckdb
             duckdb_db = DBFACTORY.create_instance(self.bronze_config.get_duckdb_settings().dbwrapper,self.bronze_config.get_configuration_file())
             duckdb_db_connection = duckdb_db.create_db_connection(self.bronze_config.get_duckdb_settings())
-            merge_template_parquet_files(os.path.splitext(merged_parquet_file)[0],duckdb_db_connection,verbose)
+            merge_template_parquet_files(os.path.splitext(merged_parquet_file)[0],duckdb_db_connection,True,verbose)
 
             self.parquet_file_list_tosend = [{"source_file":merged_parquet_file,"file_name":merged_parquet_file_name}]
         else:
@@ -566,8 +583,6 @@ class BronzeSourceBuilder:
                     verbose.log(datetime.now(tz=timezone.utc),"SEND_PARQUET","START",log_message=message)
                 bucket.put_file(bucket_file_name, source_file)
 
-                # Deleting temp file
-                os.remove(source_file)
             except Exception as err:
                 message = "Error sending parquet file {0} into bucket {1}, {2} : {3}".format(source_file,self.bucketname,bucket_file_name,str(err))
                 if verbose:
