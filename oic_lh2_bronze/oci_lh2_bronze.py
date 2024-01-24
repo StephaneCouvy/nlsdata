@@ -47,11 +47,14 @@ class BronzeConfig():
 
         if self.options.rootdir != '':
             os.chdir(self.options.rootdir)
-        self.rootdir = os.getcwd()
+            self.rootdir = os.getcwd()
+        else:
+            self.rootdir = ''
+
         # Create a temporary directory if it doesn't exist
         if not os.path.exists(self.options.tempdir):
             os.makedirs(self.options.tempdir)
-        self.fullpath_tempdir = os.path.join(self.rootdir,self.options.tempdir)
+        self.tempdir = os.path.join(self.rootdir,self.options.tempdir)
 
     def get_configuration_file(self):
         return self.configuration_file
@@ -71,7 +74,7 @@ class BronzeConfig():
     def get_rootdir(self):
         return self.rootdir
     def get_tempdir(self):
-        return self.fullpath_tempdir
+        return self.tempdir
 
 class BronzeExploit:
     # Iterator object for list of sources to be imported into Bronze
@@ -215,9 +218,9 @@ class BronzeLogger():
 
         sql = f"""INSERT INTO {self.table_name} ({columns}) VALUES ({args})"""
 
-        print(sql)
-        print(tuple(self.instance_bronzeloggerproperties))
-        print(self.instance_bronzeloggerproperties._asdict())
+        #print(sql)
+        #print(tuple(self.instance_bronzeloggerproperties))
+        #print(self.instance_bronzeloggerproperties._asdict())
         # Execute the SQL query with the provided parameters
         self.cur.execute(sql, tuple(self.instance_bronzeloggerproperties))
 
@@ -493,6 +496,12 @@ class BronzeSourceBuilder:
                 message = "Creating table {} : {}".format(table,create)
                 verbose.log(datetime.now(tz=timezone.utc), "CREATE_TABLE", "START", log_message=message)
             cur.execute(create)
+            # Alter column type from BINARY_DOUBLE to NUMBER
+            alter_table = 'BEGIN ADMIN.ALTER_TABLE_COLUMN_TYPE(\'' + self.bronze_database_param.p_username + '\',\'' + table + '\',\'BINARY_DOUBLE\',\'NUMBER\'); END;'
+            if verbose:
+                message = "Altering table columns type {}.{} : {}".format(self.bronze_database_param.p_username,table,alter_table)
+                verbose.log(datetime.now(tz=timezone.utc), "ALTER_TABLE", "START", log_message=message)
+            cur.execute(alter_table)
             cur.close()
             return True
 
@@ -658,8 +667,6 @@ class BronzeGenerator:
                                           "SRC_DATE_LASTUPDATE", last_date, verbose)
         self.__bronzesourcebuilder__.update_total_duration()
         if verbose:
-            print(self.__bronzesourcebuilder__.get_rows_stats()[0])
-            print(self.__bronzesourcebuilder__.get_durations_stats()[0])
             print(vSourceProperties)
             message = "Integrating {3} rows from {0} {1} {2} in {4}".format(vSourceProperties.name, vSourceProperties.schema,
                                                                      vSourceProperties.table, self.__bronzesourcebuilder__.get_rows_stats()[0],self.__bronzesourcebuilder__.get_durations_stats()[0])
