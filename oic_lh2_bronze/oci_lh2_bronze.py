@@ -91,7 +91,7 @@ class BronzeExploit:
         cur = self.oracledb_connection.cursor()
 
         # Execute a SQL query to fetch activ data from the table "LIST_DATASOURCE_LOADING_..." into a dataframe
-        param_req = "select * from " + self.table_name + " where SRC_FLAG_ACTIV = 1"
+        param_req = "select * from " + self.table_name + " where SRC_FLAG_ACTIV = 1 ORDER BY SRC_TYPE,SRC_NAME,SRC_OBJECT_NAME"
         cur.execute(param_req)
         self.df_param = pd.DataFrame(cur.fetchall())
         self.df_param.columns = [x[0] for x in cur.description]
@@ -187,6 +187,13 @@ class BronzeLogger():
 
         self.instance_bronzeloggerproperties = self.instance_bronzeloggerproperties._replace(REQUEST=vSourceProperties.request,ACTION=self.action,END_TIME=datetime.now(tz=timezone.utc),STAT_ROWS_COUNT=vSourceRowsStats[0],STAT_ROWS_SIZE=vSourceRowsStats[1],STAT_SENT_PARQUETS_COUNT=vSourceParquetsStats[0],STAT_SENT_PARQUETS_SIZE=vSourceParquetsStats[1],STAT_TOTAL_DURATION=vSourceDurationsStats[0],STAT_FETCH_DURATION=vSourceDurationsStats[1],STAT_UPLOAD_PARQUETS_DURATION=vSourceDurationsStats[2])
         self.__insertlog__()
+
+    def log(self,action="SUCCESS",error=None):
+        if error:
+            self.error_type = type(error).__name__
+            self.error_message = str(error)
+        self.action = action
+        self.__log__()
 
     def log_error(self, action="ERROR",error=Exception()):
         self.error_type = type(error).__name__
@@ -672,5 +679,5 @@ class BronzeGenerator:
                                                                      vSourceProperties.table, self.__bronzesourcebuilder__.get_rows_stats()[0],self.__bronzesourcebuilder__.get_durations_stats()[0])
             verbose.log(datetime.now(tz=timezone.utc), "INTEGRATE", "END", log_message=message)
         if self.__logger__:
-            self.__logger__.log_success()
+            self.__logger__.log()
 
