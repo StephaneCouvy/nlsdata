@@ -16,8 +16,8 @@ class BronzeSourceBuilderDb(BronzeSourceBuilder):
         self.source_db_connection = self.source_db.create_db_connection(self.source_database_param)
 
         if not self.source_db_connection:
-            message = "Error connecting to : {}".format(self.src_name)
-            self.logger.log_error(error=message, action="Error DB connection")
+            message = "ERROR connecting to : {}".format(self.src_name)
+            self.logger.log(error=Exception(message), action=message)
             raise(message)
         # Customize select to force encode of columns
         self.__custom_select_from_source__()
@@ -73,23 +73,23 @@ class BronzeSourceBuilderDb(BronzeSourceBuilder):
                         self.__create_parquet_file__(verbose)
             return True
         except UnicodeDecodeError as err:  # Catching Unicode Decode Error
-            message = "Unicode Decode Error: {} ".format(str(err))
+            message = "ERROR Unicode Decode: {} ".format(str(err))
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "FETCH", "ERROR", log_message=message)
-            self.logger.log_error(error=message, action="fetch_source Unicode Error")
+            self.logger.log(error=err, action=message)
             self.__update_fetch_row_stats__()
             return False
         except oracledb.Error as err:
-            message = "Error fetch, Oracle DB error : {}".format(str(err))
+            message = "ERROR fetch, Oracle DB error : {}".format(str(err))
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "FETCH", "ERROR", log_message=message,log_request = self.request)
-            self.logger.log_error(error=message, action = "Oracle error")
+            self.logger.log(error=err, action = message)
             self.__update_fetch_row_stats__()
             return False
         except Exception as err:
-            message = "Error Fetch: {}".format(str(err))
+            message = "ERROR Fetch: {}".format(str(err))
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "FETCH", "ERROR", log_message=message)
-            self.logger.log_error(error=message, action = "Error fetch")
+            self.logger.log(error=err, action = message)
             self.__update_fetch_row_stats__()
             return False

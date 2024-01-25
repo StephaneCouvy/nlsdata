@@ -22,19 +22,19 @@ class BronzeSourceBuilderFile(BronzeSourceBuilder):
                 case "EXCEL":
                     table = pd.read_excel(self.src_schema, sheet_name=self.src_table, skiprows=0)
                 case _:
-                    message = "Error, unknown source {0}, extracting data from file {1},{2}".format(self.src_name,self.src_schema,self.src_table)
+                    message = "ERROR, unknown source {0}, extracting data from file {1},{2}".format(self.src_name,self.src_schema,self.src_table)
                     if verbose:
                         verbose.log(datetime.now(tz=timezone.utc), "FETCH", "ERROR", log_message=message)
-                    self.logger.log_error(error=message, action = message)
+                    self.logger.log(error=Exception(message), action = message)
                     return False
             self.df_table_content = table.astype('string')
             self.__create_parquet_file__()
             self.__update_fetch_row_stats__()
             return True
         except Exception as err:
-                message = "Extracting error from {0}, file {1},{2} : {3}".format(self.src_name,self.src_schema,self.src_table,str(err))
+                message = "ERROR Extracting from {0}, file {1},{2} : {3}".format(self.src_name,self.src_schema,self.src_table,str(err))
                 if verbose:
                     verbose.log(datetime.now(tz=timezone.utc), "FETCH", "ERROR", log_message=message)
-                self.logger.log_error(error=message, action = "error fetch")
+                self.logger.log(error=err, action = message)
                 self.__update_fetch_row_stats__()
                 return False

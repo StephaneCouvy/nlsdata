@@ -195,22 +195,6 @@ class BronzeLogger():
         self.action = action
         self.__log__()
 
-    def log_error(self, action="ERROR",error=Exception()):
-        self.error_type = type(error).__name__
-        self.error_message = str(error)
-        self.action = action
-        self.__log__()
-
-    def log_warning(self, action="WARNING",error=Exception()):
-        self.error_type = type(error).__name__
-        self.error_message = str(error)
-        self.action = action
-        self.__log__()
-
-    def log_success(self, action="SUCCESS"):
-        self.action = action
-        self.__log__()
-
     def __insertlog__(self):
         # Define the SQL query to insert a log into the table
         columns = ''
@@ -412,16 +396,16 @@ class BronzeSourceBuilder:
                     verbose.log(datetime.now(tz=timezone.utc), "CREATE_PARQUET", "START", log_message=message)
                 return False
         except OSError as err:
-            message = "error creating parquet file : {}".format(str(err))
+            message = "ERROR creating parquet file : {}".format(str(err))
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "CREATE_PARQUET", "ERROR",log_message=message)
-            self.logger.log_error(error=message, action = "OS error")
+            self.logger.log(error=err, action = message)
             return False
         except Exception as err:
-            message = "Error creating parquet file {0}: {1}".format(parquet_file_name,str(err))
+            message = "ERROR creating parquet file {0}: {1}".format(parquet_file_name,str(err))
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "CREATE_PARQUET", "ERROR",log_message=message)
-            self.logger.log_error(error=message, action = "Error creating parquet file")
+            self.logger.log(error=err, action = message)
             # continue can only be used within a loop, so we use pass instead
             return False
 
@@ -462,16 +446,16 @@ class BronzeSourceBuilder:
             return True
 
         except oracledb.Error as err:
-            message = "Error synchronizing table {}, Oracle DB error : {}".format(table,str(err))
+            message = "ERROR synchronizing table {}, Oracle DB error : {}".format(table,str(err))
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "UPDATE_TABLE", "ERROR", log_message=message)
-            self.logger.log_error(error=message, action="Oracle error")
+            self.logger.log(error=err, action=message)
             raise
         except Exception as err:
-            message = "Error synchronizing table {} : {}".format(table,str(err))
+            message = "ERROR synchronizing table {} : {}".format(table,str(err))
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "UPDATE_TABLE", "ERROR", log_message=message)
-            self.logger.log_error(error=message, action="Error synchronizing table")
+            self.logger.log(error=err, action=message)
             return False
 
     def __create_bronze_table__(self,verbose=None):
@@ -513,16 +497,16 @@ class BronzeSourceBuilder:
             return True
 
         except oracledb.Error as err:
-            message = "Error creating table {}, Oracle DB error : {}".format(table, str(err))
+            message = "ERROR creating table {}, Oracle DB error : {}".format(table, str(err))
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "CREATE_TABLE", "ERROR", log_message=message)
-            self.logger.log_error(error=message, action="Oracle error")
+            self.logger.log(error=err, action=message)
             raise
         except Exception as err:
-            message = "Error creating table {} : {}".format(table, str(err))
+            message = "ERROR creating table {} : {}".format(table, str(err))
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "CREATE_TABLE", "ERROR", log_message=message)
-            self.logger.log_error(error=message, action="Error creating table")
+            self.logger.log(error=err, action=message)
             return False
 
     def update_total_duration(self):
@@ -567,7 +551,7 @@ class BronzeSourceBuilder:
             message = "No parquet files to be sent"
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "SEND_PARQUET", "START", log_message=message)
-                self.logger.log_warning(error=message,action = "WARNING")
+                self.logger.log(action = "WARNING",error=Exception(message))
             return True
         self.parquet_file_list_tosend = []
         if not self.src_flag_incr:
@@ -600,10 +584,10 @@ class BronzeSourceBuilder:
                 bucket.put_file(bucket_file_name, source_file)
 
             except Exception as err:
-                message = "Error sending parquet file {0} into bucket {1}, {2} : {3}".format(source_file,self.bucketname,bucket_file_name,str(err))
+                message = "ERROR sending parquet file {0} into bucket {1}, {2} : {3}".format(source_file,self.bucketname,bucket_file_name,str(err))
                 if verbose:
                     verbose.log(datetime.now(tz=timezone.utc),"SEND_PARQUET","ERROR",log_message=message)
-                self.logger.log_error(error=message, action = "error sending parquet")
+                self.logger.log(error=err, action = message)
                 return False
         self.__update_sent_parquets_stats()
         return True
@@ -628,10 +612,10 @@ class BronzeSourceBuilder:
                 res = self.__create_bronze_table__(verbose)
             return res
         except Exception as err:
-            message = "Error updating bronze schema for table : {}".format(self.bronze_table, str(err))
+            message = "ERROR updating bronze schema for table : {}".format(self.bronze_table, str(err))
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "CREATE_TABLE", "ERROR", log_message=message)
-            self.logger.log_error(error=message, action="updating bronze schema")
+            self.logger.log(error=err, action=message)
             return False
 
     def pre_fetch_source(self):
