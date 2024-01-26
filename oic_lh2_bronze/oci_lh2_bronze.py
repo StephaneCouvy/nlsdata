@@ -12,6 +12,7 @@ PANDAS_CHUNKSIZE = 100000
 # Variables could be redefined by json config file
 DB_ARRAYSIZE = 50000
 SQL_READMODE = "DBCURSOR" #CURSORDB / PANDAS
+PARQUET_FILE_EXTENSION = ".parquet"
 
 DBFACTORY = NLSDbFactory()
 
@@ -355,15 +356,18 @@ class BronzeSourceBuilder:
         if list_buckets_files:
             try:
                 max_file = max(list_buckets_files)
-                pos = re.search(what_to_search, max_file).span()[1]
-                idx = int(max_file[pos:pos + PARQUET_IDX_DIGITS])
+                # eliminate file extension
+                begin_file_name = max_file.split('.')[0]
+                # span() returns a tuple containing the start-, and end positions of the match.
+                pos = re.search(what_to_search, begin_file_name).span()[1]
+                idx = int(begin_file_name[pos:])
             except ValueError:
                 idx = 0
         return idx
 
     def __clean_temporary_parquet_files__(self):
         # clean temporay local parquet files (some could remain from previous failure process
-        merged_parquet_file_name = self.parquet_file_name_template + ".parquet"
+        merged_parquet_file_name = self.parquet_file_name_template + PARQUET_FILE_EXTENSION
         merged_parquet_file = os.path.join(self.local_workingdir, merged_parquet_file_name)
         list_files = list_template_files(os.path.splitext(merged_parquet_file)[0])
         for f in list_files:
@@ -371,10 +375,10 @@ class BronzeSourceBuilder:
 
     def __create_parquet_file__(self,verbose=None):
         # Parquet file si created locally into local_workingdir
-        # Define the path and filename for the Parquet file, id on 4 digitis
+        # Define the path and filename for the Parquet file, id on PARQUET_IDX_DIGITS digits
         self.parquet_file_id += 1
 
-        parquet_file_name= self.parquet_file_name_template + '{:04d}'.format(self.parquet_file_id) + ".parquet"
+        parquet_file_name= '{0}{1}{2}'.format(self.parquet_file_name_template,str(self.parquet_file_id).zfill(PARQUET_IDX_DIGITS),PARQUET_FILE_EXTENSION)
         source_file = os.path.join(self.local_workingdir, parquet_file_name)
 
         try:
@@ -556,7 +560,7 @@ class BronzeSourceBuilder:
         self.parquet_file_list_tosend = []
         if not self.src_flag_incr:
             # if not incremental mode, merging parquet files into one, before sending
-            merged_parquet_file_name = self.parquet_file_name_template+".parquet"
+            merged_parquet_file_name = self.parquet_file_name_template+PARQUET_FILE_EXTENSION
             merged_parquet_file = os.path.join(self.local_workingdir, merged_parquet_file_name)
             # Use 1st alternative to merge parquet files
             #parquet_files_tomerge = [p["source_file"] for p in self.parquet_file_list]
