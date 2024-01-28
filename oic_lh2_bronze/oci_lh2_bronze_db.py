@@ -16,9 +16,8 @@ class BronzeSourceBuilderDb(BronzeSourceBuilder):
         self.source_db_connection = self.source_db.create_db_connection(self.source_database_param)
 
         if not self.source_db_connection:
-            message = "ERROR connecting to : {}".format(self.src_name)
-            self.logger.log(error=Exception(message), action=message)
-            raise(message)
+            vError = "ERROR connecting to : {}".format(self.src_name)
+            raise(vError)
         # Customize select to force encode of columns
         self.__custom_select_from_source__()
 
@@ -33,63 +32,65 @@ class BronzeSourceBuilderDb(BronzeSourceBuilder):
             self.df_table_content = pd.DataFrame()
             match SQL_READMODE:
                 case "DBCURSOR":
-                    cur = self.source_db_connection.cursor()
-                    cur.arraysize = DB_ARRAYSIZE
+                    cursor = self.source_db_connection.cursor()
+                    cursor.arraysize = DB_ARRAYSIZE
                     if self.db_execute_bind:
                         # where clause on date
-                        cur.execute(self.request,self.db_execute_bind)
+                        cursor.execute(self.request,self.db_execute_bind)
                     else:
-                        cur.execute(self.request)
+                        cursor.execute(self.request)
                     while True:
                         # Fetch data by chunk and convert to dataframe
                         # chunk specified by DB_ARREYSIZE
-                        rows = cur.fetchmany()
+                        rows = cursor.fetchmany()
                         #map column name from cursor to df ; force types of columns based on cursor type
-                        self.df_table_content = self.source_db.create_df_with_db_cursor(rows,cur.description)
+                        self.df_table_content = self.source_db.create_df_with_db_cursor(rows,cursor.description)
                         if self.df_table_content.empty:
                             break
-                        # update total count of imported rows
-                        self.__update_fetch_row_stats__()
-                        elapsed = datetime.now() -self.fetch_start
-                        if verbose:
-                            message = "{0} rows in {1} seconds".format(self.total_rows_imported,elapsed)
-                            verbose.log(datetime.now(tz=timezone.utc), "FETCH", "RUN", log_message=message)
                         # create parquet file for current chunk dataframe
                         res = self.__create_parquet_file__(verbose)
                         if not res:
                             raise
-                    cur.close()
+                        # update total count of imported rows
+                        self.__update_fetch_row_stats__()
+                        elapsed = datetime.now() -self.fetch_start
+                        if verbose:
+                            message = "{0} rows in {1} seconds".format(self.total_imported_rows, elapsed)
+                            verbose.log(datetime.now(tz=timezone.utc), "FETCH", "RUN", log_message=message)
+                    cursor.close()
                 case "PANDAS":
                    # Fetch data by chunk and convert to dataframe
                     for df_chunk in pd.read_sql(sql=self.request,con=self.source_db_connection,chunksize=PANDAS_CHUNKSIZE):
                         self.df_table_content = pd.concat([self.df_table_content,df_chunk])
+                        # create parquet file for current chunk dataframe
+                        res = self.__create_parquet_file__(verbose)
+                        if not res:
+                            raise
                         ## update total count of imported rows
                         self.__update_fetch_row_stats__()
                         elapsed = datetime.now() - self.fetch_start
                         if verbose:
-                            message = "{0} rows in {1} seconds".format(self.total_rows_imported,elapsed)
+                            message = "{0} rows in {1} seconds".format(self.total_imported_rows, elapsed)
                             verbose.log(datetime.now(tz=timezone.utc), "FETCH", "RUN", log_message=message)
-                        # create parquet file for current chunk dataframe
-                        self.__create_parquet_file__(verbose)
             return True
         except UnicodeDecodeError as err:  # Catching Unicode Decode Error
-            message = "ERROR Unicode Decode: {} ".format(str(err))
+            vError = "ERROR Unicode Decode, table {}".format(self.src_table)
             if verbose:
-                verbose.log(datetime.now(tz=timezone.utc), "FETCH", "ERROR", log_message=message)
-            self.logger.log(error=err, action=message)
+                verbose.log(datetime.now(tz=timezone.utc), "FETCH", vError, log_message=str(err),log_request=self.request)
+            self.logger.log(error=err, action=vError)
             self.__update_fetch_row_stats__()
             return False
         except oracledb.Error as err:
-            message = "ERROR fetch, Oracle DB error : {}".format(str(err))
+            vError = "ERROR Fetching table {}".format(self.src_table)
             if verbose:
-                verbose.log(datetime.now(tz=timezone.utc), "FETCH", "ERROR", log_message=message,log_request = self.request)
-            self.logger.log(error=err, action = message)
+                verbose.log(datetime.now(tz=timezone.utc), "FETCH", vError, log_message='Oracle DB error :{}'.format(str(err)),log_request=self.request)
+            self.logger.log(error=err, action=vError)
             self.__update_fetch_row_stats__()
             return False
         except Exception as err:
-            message = "ERROR Fetch: {}".format(str(err))
+            vError = "ERROR Fetching table {}".format(self.src_table)
             if verbose:
-                verbose.log(datetime.now(tz=timezone.utc), "FETCH", "ERROR", log_message=message)
-            self.logger.log(error=err, action = message)
+                verbose.log(datetime.now(tz=timezone.utc), "FETCH", vError, log_message=str(err),log_request=self.request)
+            self.logger.log(error=err, action=vError)
             self.__update_fetch_row_stats__()
             return False

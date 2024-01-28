@@ -89,14 +89,14 @@ class BronzeExploit:
         self.oracledb_connection = self.db.create_db_connection(self.exploit_db_param)
 
         self.table_name = self.bronze_config.get_options().datasource_load_tablename_prefix + self.bronze_config.get_options().environment
-        cur = self.oracledb_connection.cursor()
+        cursor = self.oracledb_connection.cursor()
 
         # Execute a SQL query to fetch activ data from the table "LIST_DATASOURCE_LOADING_..." into a dataframe
         param_req = "select * from " + self.table_name + " where SRC_FLAG_ACTIV = 1 ORDER BY SRC_TYPE,SRC_NAME,SRC_OBJECT_NAME"
-        cur.execute(param_req)
-        self.df_param = pd.DataFrame(cur.fetchall())
-        self.df_param.columns = [x[0] for x in cur.description]
-        cur.close()
+        cursor.execute(param_req)
+        self.df_param = pd.DataFrame(cursor.fetchall())
+        self.df_param.columns = [x[0] for x in cursor.description]
+        cursor.close()
 
     def __iter__(self):
         return self
@@ -110,10 +110,9 @@ class BronzeExploit:
         return items
 
     def update_exploit(self,src_name,src_origin_name,src_object_name,column_name, value,verbose=None):
-        res = False
         request = ""
         try:
-            cur = self.oracledb_connection.cursor()
+            cursor = self.oracledb_connection.cursor()
             request = "UPDATE " + self.table_name + " SET "+column_name+" = :1 WHERE SRC_NAME = :2 AND SRC_ORIGIN_NAME = :3 AND SRC_OBJECT_NAME = :4"
 
             # update last date or creation date (depends on table)
@@ -121,31 +120,30 @@ class BronzeExploit:
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "SET_LASTUPDATE", "START", log_message=message,
                             log_request=request)
-            cur.execute(request,(value,src_name,src_origin_name,src_object_name))
+            bindvars = (value,src_name,src_origin_name,src_object_name)
+            cursor.execute(request,bindvars)
             self.oracledb_connection.commit()
-            res = True
-            cur.close()
-            return res
-
+            cursor.close()
+            return True
         except oracledb.Error as err:
-            message = "Error set last updated row for table {} :{}".format(self.table_name, str(err))
+            vError = "ERROR {} with values {}".format(request,bindvars)
             if verbose:
-                verbose.log(datetime.now(tz=timezone.utc), "GET_MAX_COLUMN", "ERROR", log_message=message,
-                            log_request=request)
-            raise
+                verbose.log(datetime.now(tz=timezone.utc), "UPDATE_EXPLOIT", vError,log_message='Oracle DB error : {}'.format(str(err)))
+            self.logger.log(error=err, action=vError)
+            return False
         except Exception as err:
-            message = "Error set last updated row for table {} :{}".format(self.table_name, str(err))
+            vError = "ERROR {} with values {}".format(request, bindvars)
             if verbose:
-                verbose.log(datetime.now(tz=timezone.utc), "SET_MAX_COLUMN", "ERROR", log_message=message,
-                            log_request=request)
-            return res
+                verbose.log(datetime.now(tz=timezone.utc), "UPDATE_EXPLOIT", vError,str(err))
+            self.logger.log(error=err, action=vError)
+            return False
 
 class BronzeLogger():
     def __init__(self, bronze_config,verbose=None):
         self.bronze_source = None
         self.bronze_config = bronze_config
         self.verbose = verbose
-        self.cur = None
+        self.cursor = None
         self.oracledb_connection = None
         if self.bronze_config:
             self.env = bronze_config.get_options().environment
@@ -153,8 +151,8 @@ class BronzeLogger():
         self._init_logger()
 
     def __del__(self):
-        if self.cur:
-            self.cur.close()
+        if self.cursor:
+            self.cursor.close()
     def _init_logger(self):
         if self.bronze_config:
             self.__del__()
@@ -164,12 +162,11 @@ class BronzeLogger():
             self.db = DBFACTORY.create_instance(self.logger_db_param.dbwrapper,self.bronze_config.get_configuration_file())
 
             self.oracledb_connection = self.db.create_db_connection(self.logger_db_param)
-            self.cur = self.oracledb_connection.cursor()
+            self.cursor = self.oracledb_connection.cursor()
 
-            #Generate attributs of logger from table
-            attr_list = list(self.db.get_table_columns(self.table_name).keys())
-            self.BronzeLoggerProperties = namedtuple('BronzeLoggerProperties',attr_list)
-            self.instance_bronzeloggerproperties = self.BronzeLoggerProperties(START_TIME=datetime.now(tz=timezone.utc),END_TIME=None, ENVIRONMENT=self.env,ACTION='',SRC_NAME='',SRC_ORIGIN_NAME='',SRC_OBJECT_NAME='',REQUEST='',ERROR_TYPE='',ERROR_MESSAGE='',STAT_ROWS_COUNT=0,STAT_ROWS_SIZE=0,STAT_TOTAL_DURATION=0,STAT_FETCH_DURATION=0,STAT_UPLOAD_PARQUETS_DURATION=0,STAT_SENT_PARQUETS_COUNT=0,STAT_SENT_PARQUETS_SIZE=0)
+            self.BronzeLoggerProperties = self.db.create_namedtuple_from_table('BronzeLoggerProperties',self.table_name)
+            #self.instance_bronzeloggerproperties = self.BronzeLoggerProperties(START_TIME=datetime.now(tz=timezone.utc),END_TIME=None, ENVIRONMENT=self.env,ACTION='',SRC_NAME='',SRC_ORIGIN_NAME='',SRC_OBJECT_NAME='',REQUEST='',ERROR_TYPE='',ERROR_MESSAGE='',STAT_ROWS_COUNT=0,STAT_ROWS_SIZE=0,STAT_TOTAL_DURATION=0,STAT_FETCH_DURATION=0,STAT_UPLOAD_PARQUETS_DURATION=0,STAT_SENT_PARQUETS_COUNT=0,STAT_SENT_PARQUETS_SIZE=0)
+            self.instance_bronzeloggerproperties = self.BronzeLoggerProperties(START_TIME=datetime.now(tz=timezone.utc),ENVIRONMENT=self.env)
 
     def link_to_bronze_source(self,br_source):
         self.bronze_source = br_source
@@ -180,44 +177,28 @@ class BronzeLogger():
         self.instance_bronzeloggerproperties = self.instance_bronzeloggerproperties._replace(SRC_NAME=vSourceProperties.name,SRC_ORIGIN_NAME=vSourceProperties.schema,SRC_OBJECT_NAME=vSourceProperties.table)
 
 
-    def __log__(self):
+    def log(self,action="SUCCESS",error=None):
+        if error:
+            error_type = type(error).__name__
+            error_message = str(error)
+        else:
+            error_type = ''
+            error_message = ''
         vSourceDurationsStats = self.bronze_source.get_durations_stats()
         vSourceRowsStats = self.bronze_source.get_rows_stats()
         vSourceParquetsStats = self.bronze_source.get_parquets_stats()
         vSourceProperties = self.bronze_source.get_source_properties()
 
-        self.instance_bronzeloggerproperties = self.instance_bronzeloggerproperties._replace(REQUEST=vSourceProperties.request,ACTION=self.action,END_TIME=datetime.now(tz=timezone.utc),STAT_ROWS_COUNT=vSourceRowsStats[0],STAT_ROWS_SIZE=vSourceRowsStats[1],STAT_SENT_PARQUETS_COUNT=vSourceParquetsStats[0],STAT_SENT_PARQUETS_SIZE=vSourceParquetsStats[1],STAT_TOTAL_DURATION=vSourceDurationsStats[0],STAT_FETCH_DURATION=vSourceDurationsStats[1],STAT_UPLOAD_PARQUETS_DURATION=vSourceDurationsStats[2])
+        self.instance_bronzeloggerproperties = self.instance_bronzeloggerproperties._replace(
+            REQUEST=vSourceProperties.request, ACTION=action, END_TIME=datetime.now(tz=timezone.utc),ERROR_TYPE=error_type,ERROR_MESSAGE=error_message,
+            STAT_ROWS_COUNT=vSourceRowsStats[0], STAT_ROWS_SIZE=vSourceRowsStats[1],
+            STAT_SENT_PARQUETS_COUNT=vSourceParquetsStats[0], STAT_SENT_PARQUETS_SIZE=vSourceParquetsStats[1],
+            STAT_TOTAL_DURATION=vSourceDurationsStats[0], STAT_FETCH_DURATION=vSourceDurationsStats[1],
+            STAT_UPLOAD_PARQUETS_DURATION=vSourceDurationsStats[2], STAT_TEMP_PARQUETS_COUNT=vSourceParquetsStats[2])
         self.__insertlog__()
 
-    def log(self,action="SUCCESS",error=None):
-        if error:
-            self.error_type = type(error).__name__
-            self.error_message = str(error)
-        self.action = action
-        self.__log__()
-
     def __insertlog__(self):
-        # Define the SQL query to insert a log into the table
-        columns = ''
-        for col in self.instance_bronzeloggerproperties._fields:
-            columns += col + ', '
-        columns = columns.rstrip(', ')
-
-        args = ''
-        for i in range(1,len(self.instance_bronzeloggerproperties._fields)+1):
-            args += ':{}, '.format(i)
-        args  = args.rstrip(', ')
-
-        sql = f"""INSERT INTO {self.table_name} ({columns}) VALUES ({args})"""
-
-        #print(sql)
-        #print(tuple(self.instance_bronzeloggerproperties))
-        #print(self.instance_bronzeloggerproperties._asdict())
-        # Execute the SQL query with the provided parameters
-        self.cur.execute(sql, tuple(self.instance_bronzeloggerproperties))
-
-        # Commit the transaction to the database
-        self.oracledb_connection.commit()
+        self.db.insert_namedtuple_into_table(self.instance_bronzeloggerproperties,self.table_name)
 
 SourceProperties = namedtuple('SourceProperties',['type','name','schema','table','request','incremental','lastupdate'])
 BronzeProperties = namedtuple('BronzeProperties',['environment','schema','table','bucket','bucket_filepath','parquet_template'])
@@ -267,16 +248,17 @@ class BronzeSourceBuilder:
         self.bronze_table = "" # defined into sub-class
         self.bronze_schema = "BRONZE_" + self.env
 
-        self.total_parquet_sent = 0 # Total number of parquet files sent to bucket
-        self.total_parquet_sent_size = 0 # total size of parquet files
-        self.total_rows_imported = 0  # Total number of rows imported from the source table
-        self.total_rows_size_imported = 0 # size of importted rows from source
+        self.total_sent_parquets = 0 # Total number of parquet files sent to bucket
+        self.total_sent_parquets_size = 0 # total size of parquet files
+        self.total_temp_parquets = 0 # total of temporary parquets created when fetching data, before merging for no incremental table
+        self.total_imported_rows = 0  # Total number of rows imported from the source table
+        self.total_imported_rows_size = 0 # size of importted rows from source
         self.start = datetime.now()
         self.fetch_start = None
-        self.send_parquet_start = None
+        self.upload_parquets_start = None
         self.total_duration = datetime.now() - datetime.now() # duration of requests
         self.fetch_duration = datetime.now() - datetime.now() # duration to ftech data and create local parquet files
-        self.send_parquet_duration = datetime.now() - datetime.now() # duration to send parquet files to OCI
+        self.upload_parquets_duration = datetime.now() - datetime.now() # duration to send parquet files to OCI
         # if debug = True then we use a dedicated bucket to store parquet files. Bucket name identified into json config
         self.debug = self.bronze_config.isdebugmode()
         # Define bucket
@@ -321,20 +303,23 @@ class BronzeSourceBuilder:
         self.local_workingdir = path
 
     def __update_fetch_row_stats__(self):
-        self.total_rows_imported += len(self.df_table_content)
-        self.total_rows_size_imported += int(self.df_table_content.memory_usage(deep=True).sum())
+        self.total_imported_rows += len(self.df_table_content)
+        self.total_imported_rows_size += int(self.df_table_content.memory_usage(deep=True).sum())
         if self.fetch_start:
             self.fetch_duration = datetime.now() - self.fetch_start
 
     def __update_sent_parquets_stats(self):
-        self.total_parquet_sent = len(self.parquet_file_list_tosend)
+        self.total_temp_parquets = len(self.parquet_file_list)
+        self.total_sent_parquets = len(self.parquet_file_list_tosend)
         for p in self.parquet_file_list_tosend:
             source_file = p["source_file"]
-            self.total_parquet_sent_size += os.path.getsize(source_file)
+            self.total_sent_parquets_size += os.path.getsize(source_file)
             # Deleting temp file
             os.remove(source_file)
-        if self.send_parquet_start:
-            self.send_parquet_duration = datetime.now() - self.send_parquet_start
+        if self.upload_parquets_start:
+            self.upload_parquets_duration = datetime.now() - self.upload_parquets_start
+        else:
+            self.upload_parquets_start = datetime.now()
 
     def __add_integration_date_column__(self):
         # Adding column into every parquet file with System date to log integration datetime
@@ -395,21 +380,21 @@ class BronzeSourceBuilder:
                 #print("parquet created")
                 return True
             else:
-                message = "Now row for {}".format(parquet_file_name)
+                message = "No row for {}".format(parquet_file_name)
                 if verbose:
                     verbose.log(datetime.now(tz=timezone.utc), "CREATE_PARQUET", "START", log_message=message)
                 return False
         except OSError as err:
-            message = "ERROR creating parquet file : {}".format(str(err))
+            vError = "ERROR Creating parquet file {}".format(parquet_file_name)
             if verbose:
-                verbose.log(datetime.now(tz=timezone.utc), "CREATE_PARQUET", "ERROR",log_message=message)
-            self.logger.log(error=err, action = message)
+                verbose.log(datetime.now(tz=timezone.utc), "CREATE_PARQUET", vError,log_message='OS Error : '.format(str(err)))
+            self.logger.log(error=err, action=vError)
             return False
         except Exception as err:
-            message = "ERROR creating parquet file {0}: {1}".format(parquet_file_name,str(err))
+            vError = "ERROR Creating parquet file {}".format(parquet_file_name)
             if verbose:
-                verbose.log(datetime.now(tz=timezone.utc), "CREATE_PARQUET", "ERROR",log_message=message)
-            self.logger.log(error=err, action = message)
+                verbose.log(datetime.now(tz=timezone.utc), "CREATE_PARQUET", vError,log_message=str(err))
+            self.logger.log(error=err, action=vError)
             # continue can only be used within a loop, so we use pass instead
             return False
 
@@ -436,30 +421,30 @@ class BronzeSourceBuilder:
         try:
             if not self.bronze_db_connection:
                 raise
-            cur = self.bronze_db_connection.cursor()
+            cursor = self.bronze_db_connection.cursor()
 
             request = 'BEGIN DBMS_CLOUD.SYNC_EXTERNAL_PART_TABLE(table_name =>\'' + table + '\'); END;'
-            cur.execute(request)
+            cursor.execute(request)
 
             # Execute a PL/SQL to synchronize Oracle partionned external table
             if verbose:
                 message = "Synchronizing external partionned table {}".format(table)
                 verbose.log(datetime.now(tz=timezone.utc), "UPDATE_TABLE", "SYNC", log_message=message)
-            cur.execute(request)
-            cur.close()
+            cursor.execute(request)
+            cursor.close()
             return True
 
         except oracledb.Error as err:
-            message = "ERROR synchronizing table {}, Oracle DB error : {}".format(table,str(err))
+            vError = "ERROR Synchronizing table {}".format(table)
             if verbose:
-                verbose.log(datetime.now(tz=timezone.utc), "UPDATE_TABLE", "ERROR", log_message=message)
-            self.logger.log(error=err, action=message)
-            raise
+                verbose.log(datetime.now(tz=timezone.utc), "SYNC_TABLE", vError, log_message='Oracle DB error :{}'.format(str(err)))
+            self.logger.log(error=err, action=vError)
+            return False
         except Exception as err:
-            message = "ERROR synchronizing table {} : {}".format(table,str(err))
+            vError = "ERROR Synchronizing table {}".format(table)
             if verbose:
-                verbose.log(datetime.now(tz=timezone.utc), "UPDATE_TABLE", "ERROR", log_message=message)
-            self.logger.log(error=err, action=message)
+                verbose.log(datetime.now(tz=timezone.utc), "SYNC_TABLE", vError,log_message=str(err))
+            self.logger.log(error=err, action=vError)
             return False
 
     def __create_bronze_table__(self,verbose=None):
@@ -467,13 +452,13 @@ class BronzeSourceBuilder:
         try:
             if not self.bronze_db_connection:
                 raise
-            cur = self.bronze_db_connection.cursor()
+            cursor = self.bronze_db_connection.cursor()
             # Dropping table before recreating
             drop = 'BEGIN EXECUTE IMMEDIATE \'DROP TABLE ' + table + '\'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;'
             if verbose:
                 message = "Dropping table {} : {}".format(table,drop)
                 verbose.log(datetime.now(tz=timezone.utc), "DROP_TABLE", "START", log_message=message)
-            cur.execute(drop)
+            cursor.execute(drop)
 
             # Create external part table parsing parquet files from bucket root (for incremental mode)
             if self.src_flag_incr:
@@ -490,27 +475,27 @@ class BronzeSourceBuilder:
             if verbose:
                 message = "Creating table {} : {}".format(table,create)
                 verbose.log(datetime.now(tz=timezone.utc), "CREATE_TABLE", "START", log_message=message)
-            cur.execute(create)
+            cursor.execute(create)
             # Alter column type from BINARY_DOUBLE to NUMBER
             alter_table = 'BEGIN ADMIN.ALTER_TABLE_COLUMN_TYPE(\'' + self.bronze_database_param.p_username + '\',\'' + table + '\',\'BINARY_DOUBLE\',\'NUMBER\'); END;'
             if verbose:
                 message = "Altering table columns type {}.{} : {}".format(self.bronze_database_param.p_username,table,alter_table)
                 verbose.log(datetime.now(tz=timezone.utc), "ALTER_TABLE", "START", log_message=message)
-            cur.execute(alter_table)
-            cur.close()
+            cursor.execute(alter_table)
+            cursor.close()
             return True
 
         except oracledb.Error as err:
-            message = "ERROR creating table {}, Oracle DB error : {}".format(table, str(err))
+            vError= "ERROR Creating table {}".format(table)
             if verbose:
-                verbose.log(datetime.now(tz=timezone.utc), "CREATE_TABLE", "ERROR", log_message=message)
-            self.logger.log(error=err, action=message)
-            raise
+                verbose.log(datetime.now(tz=timezone.utc), "CREATE_TABLE", vError,log_message='Oracle DB error : {}'.format(str(err)))
+            self.logger.log(error=err, action=vError)
+            return False
         except Exception as err:
-            message = "ERROR creating table {} : {}".format(table, str(err))
+            vError = "ERROR Creating table {}".format(table)
             if verbose:
-                verbose.log(datetime.now(tz=timezone.utc), "CREATE_TABLE", "ERROR", log_message=message)
-            self.logger.log(error=err, action=message)
+                verbose.log(datetime.now(tz=timezone.utc), "CREATE_TABLE", vError,log_message=str(err))
+            self.logger.log(error=err, action=vError)
             return False
 
     def update_total_duration(self):
@@ -520,13 +505,13 @@ class BronzeSourceBuilder:
         return self.bronze_config
 
     def get_rows_stats(self):
-        return (self.total_rows_imported,self.total_rows_size_imported)
+        return (self.total_imported_rows, self.total_imported_rows_size)
 
     def get_durations_stats(self):
-        return (self.total_duration,self.fetch_duration,self.send_parquet_duration)
+        return (self.total_duration,self.fetch_duration,self.upload_parquets_duration)
 
     def get_parquets_stats(self):
-        return (self.total_parquet_sent,self.total_parquet_sent_size)
+        return (self.total_sent_parquets, self.total_sent_parquets_size,self.total_temp_parquets)
 
     def get_source_properties(self):
         return SourceProperties(self.src_type,self.src_name,self.src_schema,self.src_table,self.request,self.src_flag_incr,self.src_date_lastupdate)
@@ -545,17 +530,17 @@ class BronzeSourceBuilder:
         return last_date
 
     def send_parquet_files_to_oci(self,verbose=None):
-        self.send_parquet_start = datetime.now()
+        self.upload_parquets_start = datetime.now()
         self.__update_sent_parquets_stats()
         # define your OCI config
         oci_config_path = self.bronze_config.get_oci_settings().config_path
         oci_config_profile = self.bronze_config.get_oci_settings().profile
 
         if not self.parquet_file_list:
-            message = "No parquet files to be sent"
+            vError = "WARNING, No parquet files to upload"
             if verbose:
-                verbose.log(datetime.now(tz=timezone.utc), "SEND_PARQUET", "START", log_message=message)
-                self.logger.log(action = "WARNING",error=Exception(message))
+                verbose.log(datetime.now(tz=timezone.utc), "UPLOAD_PARQUET", vError, log_message="")
+            self.logger.log(error=Exception(vError), action=vError)
             return True
         self.parquet_file_list_tosend = []
         if not self.src_flag_incr:
@@ -582,16 +567,17 @@ class BronzeSourceBuilder:
                 bucket_file_name = self.bucket_file_path +  p["file_name"]
                 source_file = p["source_file"]
 
-                message = "Sending parquet from {0} into bucket {1}, {2}".format(source_file,self.bucketname,bucket_file_name)
+                message = "Uploading parquet from {0} into bucket {1}, {2}".format(source_file,self.bucketname,bucket_file_name)
                 if verbose:
-                    verbose.log(datetime.now(tz=timezone.utc),"SEND_PARQUET","START",log_message=message)
+                    verbose.log(datetime.now(tz=timezone.utc),"UPLOAD_PARQUET","START",log_message=message)
                 bucket.put_file(bucket_file_name, source_file)
 
             except Exception as err:
-                message = "ERROR sending parquet file {0} into bucket {1}, {2} : {3}".format(source_file,self.bucketname,bucket_file_name,str(err))
+                vError = "ERROR Uplaoding parquet file {0} into bucket {1}, {2}".format(source_file,self.bucketname,bucket_file_name)
                 if verbose:
-                    verbose.log(datetime.now(tz=timezone.utc),"SEND_PARQUET","ERROR",log_message=message)
-                self.logger.log(error=err, action = message)
+                    verbose.log(datetime.now(tz=timezone.utc), "UPLOAD_PARQUET", vError, log_message=str(err))
+                self.logger.log(error=err, action=vError)
+                self.__update_sent_parquets_stats()
                 return False
         self.__update_sent_parquets_stats()
         return True
@@ -616,10 +602,10 @@ class BronzeSourceBuilder:
                 res = self.__create_bronze_table__(verbose)
             return res
         except Exception as err:
-            message = "ERROR updating bronze schema for table : {}".format(self.bronze_table, str(err))
+            vError = "ERROR Updating bronze schema, table : {}".format(self.bronze_table)
             if verbose:
-                verbose.log(datetime.now(tz=timezone.utc), "CREATE_TABLE", "ERROR", log_message=message)
-            self.logger.log(error=err, action=message)
+                verbose.log(datetime.now(tz=timezone.utc), "UPDATE_BRONZE_SCHEMA", vError,log_message=str(err))
+            self.logger.log(error=err, action=vError)
             return False
 
     def pre_fetch_source(self):
@@ -640,26 +626,28 @@ class BronzeGenerator:
         self.__logger__ = vLogger
 
     def generate(self,verbose=None):
-        # 1 Extract data from source
+        # 1 Fetch data from source
         self.__bronzesourcebuilder__.pre_fetch_source()
         if not self.__bronzesourcebuilder__.fetch_source(verbose):
-            raise Exception
+            raise Exception("ERROR, Fetch data from source")
 
-        # 2 Push parquets files to bucket
+        # 2 Upload parquets files to bucket
         if not self.__bronzesourcebuilder__.send_parquet_files_to_oci(verbose):
-            raise Exception
+            raise Exception("ERROR, Upload parquets files to bucket")
 
         # 3 - Create/Update external table into Autonomous
         if not self.__bronzesourcebuilder__.update_bronze_schema(verbose):
-            raise Exception
+            raise Exception("ERROR, Create/Update external table into Autonomous")
 
         # 4 Update "Last_update" for incremental table integration
         vSourceProperties = self.__bronzesourcebuilder__.get_source_properties()
         if vSourceProperties.incremental:
             last_date = self.__bronzesourcebuilder__.get_bronze_lastupdated_row()
-            print(last_date, type(last_date))
-            self.__bronzeexploit__.update_exploit(vSourceProperties.name, vSourceProperties.schema, vSourceProperties.table,
-                                          "SRC_DATE_LASTUPDATE", last_date, verbose)
+            #print(last_date, type(last_date))
+
+            if not self.__bronzeexploit__.update_exploit(vSourceProperties.name, vSourceProperties.schema, vSourceProperties.table,
+                                          "SRC_DATE_LASTUPDATE", last_date, verbose):
+                raise Exception("ERROR, Update Exploit")
         self.__bronzesourcebuilder__.update_total_duration()
         if verbose:
             print(vSourceProperties)
