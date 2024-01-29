@@ -261,9 +261,10 @@ class BronzeSourceBuilder:
         self.upload_parquets_duration = datetime.now() - datetime.now() # duration to send parquet files to OCI
         # if debug = True then we use a dedicated bucket to store parquet files. Bucket name identified into json config
         self.debug = self.bronze_config.isdebugmode()
-        # Define bucket
+
+        # Define bucket name
         if not self.debug:
-            self.bucketname = "Bucket-" + self.env + "-" + self.src_name
+            self.bucketname = self.bronze_config.get_oci_settings().bucket_prefix_name + "-" + self.env + "-" + self.src_name
         else:
             self.bucketname = self.bronze_config.get_oci_settings().bucket_debug
 
@@ -285,7 +286,7 @@ class BronzeSourceBuilder:
             self.db_execute_bind = [self.src_date_lastupdate]
         self.request = ""
 
-        # setup logger to log events errors and success into LOG_PYTHON_env table
+        # setup logger to log events errors and success into LOG_ table
         self.logger = logger
         self.logger.link_to_bronze_source(self)
 
@@ -295,6 +296,7 @@ class BronzeSourceBuilder:
         self.bronze_db = DBFACTORY.create_instance(self.bronze_database_param.dbwrapper,self.bronze_config.get_configuration_file())
 
         self.bronze_db_connection = self.bronze_db.create_db_connection(self.bronze_database_param)
+
 
     def __set_local_workgingdir__(self, path):
         # Create a temporary directory if it doesn't exist
@@ -541,7 +543,7 @@ class BronzeSourceBuilder:
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "UPLOAD_PARQUET", vError, log_message="")
             self.logger.log(error=Exception(vError), action=vError)
-            return True
+            return False
         self.parquet_file_list_tosend = []
         if not self.src_flag_incr:
             # if not incremental mode, merging parquet files into one, before sending
@@ -573,11 +575,11 @@ class BronzeSourceBuilder:
                 bucket.put_file(bucket_file_name, source_file)
 
             except Exception as err:
+                self.__update_sent_parquets_stats()
                 vError = "ERROR Uplaoding parquet file {0} into bucket {1}, {2}".format(source_file,self.bucketname,bucket_file_name)
                 if verbose:
                     verbose.log(datetime.now(tz=timezone.utc), "UPLOAD_PARQUET", vError, log_message=str(err))
                 self.logger.log(error=err, action=vError)
-                self.__update_sent_parquets_stats()
                 return False
         self.__update_sent_parquets_stats()
         return True
@@ -626,34 +628,40 @@ class BronzeGenerator:
         self.__logger__ = vLogger
 
     def generate(self,verbose=None):
-        # 1 Fetch data from source
-        self.__bronzesourcebuilder__.pre_fetch_source()
-        if not self.__bronzesourcebuilder__.fetch_source(verbose):
-            raise Exception("ERROR, Fetch data from source")
+        while True:
+            generate_result = False
+            # 1 Fetch data from source
+            self.__bronzesourcebuilder__.pre_fetch_source()
+            if not self.__bronzesourcebuilder__.fetch_source(verbose):
+                break
 
-        # 2 Upload parquets files to bucket
-        if not self.__bronzesourcebuilder__.send_parquet_files_to_oci(verbose):
-            raise Exception("ERROR, Upload parquets files to bucket")
+            # 2 Upload parquets files to bucket
+            if not self.__bronzesourcebuilder__.send_parquet_files_to_oci(verbose):
+                break
 
-        # 3 - Create/Update external table into Autonomous
-        if not self.__bronzesourcebuilder__.update_bronze_schema(verbose):
-            raise Exception("ERROR, Create/Update external table into Autonomous")
+            # 3 - Create/Update external table into Autonomous
+            if not self.__bronzesourcebuilder__.update_bronze_schema(verbose):
+                break
 
-        # 4 Update "Last_update" for incremental table integration
-        vSourceProperties = self.__bronzesourcebuilder__.get_source_properties()
-        if vSourceProperties.incremental:
-            last_date = self.__bronzesourcebuilder__.get_bronze_lastupdated_row()
-            #print(last_date, type(last_date))
+            # 4 Update "Last_update" for incremental table integration
+            vSourceProperties = self.__bronzesourcebuilder__.get_source_properties()
+            if vSourceProperties.incremental:
+                last_date = self.__bronzesourcebuilder__.get_bronze_lastupdated_row()
+                #print(last_date, type(last_date))
 
-            if not self.__bronzeexploit__.update_exploit(vSourceProperties.name, vSourceProperties.schema, vSourceProperties.table,
-                                          "SRC_DATE_LASTUPDATE", last_date, verbose):
-                raise Exception("ERROR, Update Exploit")
+                if not self.__bronzeexploit__.update_exploit(vSourceProperties.name, vSourceProperties.schema, vSourceProperties.table,
+                                              "SRC_DATE_LASTUPDATE", last_date, verbose):
+                    break
+            generate_result = True
+            break
         self.__bronzesourcebuilder__.update_total_duration()
-        if verbose:
-            print(vSourceProperties)
-            message = "Integrating {3} rows from {0} {1} {2} in {4}".format(vSourceProperties.name, vSourceProperties.schema,
-                                                                     vSourceProperties.table, self.__bronzesourcebuilder__.get_rows_stats()[0],self.__bronzesourcebuilder__.get_durations_stats()[0])
-            verbose.log(datetime.now(tz=timezone.utc), "INTEGRATE", "END", log_message=message)
-        if self.__logger__:
-            self.__logger__.log()
+        if generate_result:
+            if verbose:
+                print(vSourceProperties)
+                message = "Integrating {3} rows from {0} {1} {2} in {4}".format(vSourceProperties.name, vSourceProperties.schema,
+                                                                         vSourceProperties.table, self.__bronzesourcebuilder__.get_rows_stats()[0],self.__bronzesourcebuilder__.get_durations_stats()[0])
+                verbose.log(datetime.now(tz=timezone.utc), "INTEGRATE", "END", log_message=message)
+            if self.__logger__:
+                self.__logger__.log()
+        return generate_result
 
