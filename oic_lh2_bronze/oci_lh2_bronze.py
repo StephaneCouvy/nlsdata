@@ -333,23 +333,23 @@ class BronzeSourceBuilder:
         # get the last id parquet number
         # to avoid remplace existing parquet files
         idx = 0
-        # define your OCI config
-        oci_config_path = self.bronze_config.get_oci_settings().config_path
-        oci_config_profile = self.bronze_config.get_oci_settings().profile
-        bucket = OCIBucket(self.bucketname, file_location=oci_config_path, oci_profile=oci_config_profile)
+        try:
+            # define your OCI config
+            oci_config_path = self.bronze_config.get_oci_settings().config_path
+            oci_config_profile = self.bronze_config.get_oci_settings().profile
+            bucket = OCIBucket(self.bucketname, file_location=oci_config_path, oci_profile=oci_config_profile)
 
-        what_to_search = self.bucket_file_path+self.parquet_file_name_template
-        list_buckets_files = [obj.name for obj in bucket.list_objects(what_to_search)]
-        if list_buckets_files:
-            try:
+            what_to_search = self.bucket_file_path+self.parquet_file_name_template
+            list_buckets_files = [obj.name for obj in bucket.list_objects(what_to_search)]
+            if list_buckets_files:
                 max_file = max(list_buckets_files)
                 # eliminate file extension
                 begin_file_name = max_file.split('.')[0]
                 # span() returns a tuple containing the start-, and end positions of the match.
                 pos = re.search(what_to_search, begin_file_name).span()[1]
                 idx = int(begin_file_name[pos:])
-            except ValueError:
-                idx = 0
+        except:
+            idx = 0
         return idx
 
     def __clean_temporary_parquet_files__(self):
@@ -537,6 +537,7 @@ class BronzeSourceBuilder:
         # define your OCI config
         oci_config_path = self.bronze_config.get_oci_settings().config_path
         oci_config_profile = self.bronze_config.get_oci_settings().profile
+        oci_compartment_id = self.bronze_config.get_oci_settings().compartment_id
 
         if not self.parquet_file_list:
             vError = "WARNING, No parquet files to upload"
@@ -562,25 +563,24 @@ class BronzeSourceBuilder:
         else:
             self.parquet_file_list_tosend = self.parquet_file_list
 
-        for p in self.parquet_file_list_tosend:
-            # Sending parquet files
-            try:
-                bucket = OCIBucket(self.bucketname, file_location=oci_config_path, oci_profile=oci_config_profile)
-                bucket_file_name = self.bucket_file_path +  p["file_name"]
-                source_file = p["source_file"]
+        try:
+            bucket = OCIBucket(self.bucketname, forcecreate=True,compartment_id=oci_compartment_id,file_location=oci_config_path, oci_profile=oci_config_profile)
+            for p in self.parquet_file_list_tosend:
+                # Sending parquet files
+                    bucket_file_name = self.bucket_file_path +  p["file_name"]
+                    source_file = p["source_file"]
 
-                message = "Uploading parquet from {0} into bucket {1}, {2}".format(source_file,self.bucketname,bucket_file_name)
-                if verbose:
-                    verbose.log(datetime.now(tz=timezone.utc),"UPLOAD_PARQUET","START",log_message=message)
-                bucket.put_file(bucket_file_name, source_file)
-
-            except Exception as err:
-                self.__update_sent_parquets_stats()
-                vError = "ERROR Uplaoding parquet file {0} into bucket {1}, {2}".format(source_file,self.bucketname,bucket_file_name)
-                if verbose:
-                    verbose.log(datetime.now(tz=timezone.utc), "UPLOAD_PARQUET", vError, log_message=str(err))
-                self.logger.log(error=err, action=vError)
-                return False
+                    message = "Uploading parquet from {0} into bucket {1}, {2}".format(source_file,self.bucketname,bucket_file_name)
+                    if verbose:
+                        verbose.log(datetime.now(tz=timezone.utc),"UPLOAD_PARQUET","START",log_message=message)
+                    bucket.put_file(bucket_file_name, source_file)
+        except Exception as err:
+            self.__update_sent_parquets_stats()
+            vError = "ERROR Uplaoding parquet file {0} into bucket {1}, {2}".format(source_file,self.bucketname,bucket_file_name)
+            if verbose:
+                verbose.log(datetime.now(tz=timezone.utc), "UPLOAD_PARQUET", vError, log_message=str(err))
+            self.logger.log(error=err, action=vError)
+            return False
         self.__update_sent_parquets_stats()
         return True
 
