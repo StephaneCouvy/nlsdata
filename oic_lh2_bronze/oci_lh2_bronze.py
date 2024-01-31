@@ -1,3 +1,5 @@
+import socket
+import os
 import os.path
 
 import pandas as pd
@@ -88,11 +90,14 @@ class BronzeExploit:
         self.db = DBFACTORY.create_instance(self.exploit_db_param.dbwrapper,self.bronze_config.get_configuration_file())
         self.oracledb_connection = self.db.create_db_connection(self.exploit_db_param)
 
-        self.table_name = self.bronze_config.get_options().datasource_load_tablename_prefix + self.bronze_config.get_options().environment
+        self.exploit_loading_table = self.bronze_config.get_options().datasource_load_tablename_prefix + self.bronze_config.get_options().environment
         cursor = self.oracledb_connection.cursor()
 
+        # Create temporary LIST Datasource loading table.
+        # Insert list of tables to import
+
         # Execute a SQL query to fetch activ data from the table "LIST_DATASOURCE_LOADING_..." into a dataframe
-        param_req = "select * from " + self.table_name + " where SRC_FLAG_ACTIV = 1 ORDER BY SRC_TYPE,SRC_NAME,SRC_OBJECT_NAME"
+        param_req = "select * from " + self.exploit_loading_table + " where SRC_FLAG_ACTIV = 1 ORDER BY SRC_TYPE,SRC_NAME,SRC_OBJECT_NAME"
         cursor.execute(param_req)
         self.df_param = pd.DataFrame(cursor.fetchall())
         self.df_param.columns = [x[0] for x in cursor.description]
@@ -113,10 +118,10 @@ class BronzeExploit:
         request = ""
         try:
             cursor = self.oracledb_connection.cursor()
-            request = "UPDATE " + self.table_name + " SET "+column_name+" = :1 WHERE SRC_NAME = :2 AND SRC_ORIGIN_NAME = :3 AND SRC_OBJECT_NAME = :4"
+            request = "UPDATE " + self.exploit_loading_table + " SET "+column_name+" = :1 WHERE SRC_NAME = :2 AND SRC_ORIGIN_NAME = :3 AND SRC_OBJECT_NAME = :4"
 
             # update last date or creation date (depends on table)
-            message = "Updating {} = {} on table {}".format(column_name,value,self.table_name)
+            message = "Updating {} = {} on table {}".format(column_name,value,self.exploit_loading_table)
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "SET_LASTUPDATE", "START", log_message=message,
                             log_request=request)
@@ -426,7 +431,6 @@ class BronzeSourceBuilder:
             cursor = self.bronze_db_connection.cursor()
 
             request = 'BEGIN DBMS_CLOUD.SYNC_EXTERNAL_PART_TABLE(table_name =>\'' + table + '\'); END;'
-            cursor.execute(request)
 
             # Execute a PL/SQL to synchronize Oracle partionned external table
             if verbose:
