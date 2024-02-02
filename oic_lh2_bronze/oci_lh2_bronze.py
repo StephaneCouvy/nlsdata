@@ -9,6 +9,12 @@ from nlstools.config_settings import *
 from nlstools.tool_kits import *
 from nlsdb.dbwrapper_factory import *
 
+EXPLOIT_ARG_LOADING_TABLE = 'l'
+EXPLOIT_ARG_LOG_TABLE = 'o'
+EXPLOIT_ARG_RELOAD_ON_ERROR_INTERVAL = 'x'
+EXPLOIT_ARG_NOT_DROP_TEMP_RUNNING_LOADING_TABLE = 'k'
+
+
 PARQUET_IDX_DIGITS = 5
 PANDAS_CHUNKSIZE = 100000
 # Variables could be redefined by json config file
@@ -83,8 +89,9 @@ class BronzeExploit:
     # Iterator object for list of sources to be imported into Bronze
     # Define metohd to update src_dat_lastupdate for table with incremental integration
 
-    def __init__(self,br_config,verbose=None):
+    def __init__(self,br_config,verbose=None,**optional_args):
         self.idx = 0
+        self.verbose = verbose
         self.bronze_config = br_config
         self.exploit_db_param = get_parser_config_settings("database")(self.bronze_config.get_configuration_file(),"exploit")
         self.db = DBFACTORY.create_instance(self.exploit_db_param.dbwrapper,self.bronze_config.get_configuration_file())
@@ -93,16 +100,65 @@ class BronzeExploit:
         self.exploit_loading_table = self.bronze_config.get_options().datasource_load_tablename_prefix + self.bronze_config.get_options().environment
         cursor = self.oracledb_connection.cursor()
 
-        # Create temporary LIST Datasource loading table.
-        # Insert list of tables to import
+        # drop temporary running loding table or Not
+        self.not_drop_running_loading_table = optional_args[EXPLOIT_ARG_NOT_DROP_TEMP_RUNNING_LOADING_TABLE]
+
+        if not optional_args[EXPLOIT_ARG_LOADING_TABLE] :
+            # Create running/temporary List Datasource loading table.
+            # Insert list of tables to import
+            hostname = socket.gethostname()
+            pid = os.getpid()
+            # Temporary table name
+            self.exploit_running_loading_table = 'TEMP_' + self.exploit_loading_table + "_" + str(hostname) + "_" + str(pid)
+            proc_out_duplicate_table = cursor.var(bool)
+            proc_out_createlh2_datasource = cursor.var(str)
+
+            exploit_running_loading_table_fullname = self.exploit_db_param.p_username +'.' + self.exploit_running_loading_table
+
+            message = "Create running Exploit table  {}".format(self.exploit_running_loading_table)
+            if self.verbose:
+                self.verbose.log(datetime.now(tz=timezone.utc), "EXPLOIT", "START", log_message=message)
+
+            if optional_args[EXPLOIT_ARG_RELOAD_ON_ERROR_INTERVAL] and optional_args[EXPLOIT_ARG_LOG_TABLE] :
+                cursor.callproc('ADMIN.DUPLICATE_TABLE', [self.exploit_db_param.p_username, self.exploit_loading_table,self.exploit_db_param.p_username,self.exploit_running_loading_table,False,proc_out_duplicate_table])
+
+                vInterval_start = optional_args[EXPLOIT_ARG_RELOAD_ON_ERROR_INTERVAL][0].strftime("%Y-%m-%d %H:%M:%S")
+                vInterval_end = optional_args[EXPLOIT_ARG_RELOAD_ON_ERROR_INTERVAL][1].strftime("%Y-%m-%d %H:%M:%S")
+                vLog_table = optional_args[EXPLOIT_ARG_LOG_TABLE]
+                message = "Populate Exploit table {} with previous error tables from log table {} on interval {}->{}".format(self.exploit_running_loading_table,vLog_table,vInterval_start,vInterval_end)
+                if self.verbose:
+                    self.verbose.log(datetime.now(tz=timezone.utc), "EXPLOIT", "START", log_message=message)
+                cursor.callproc('CREATE_LH2_DATASOURCE_LOADING_ON_ERROR',[self.exploit_loading_table,self.exploit_running_loading_table,vLog_table,vInterval_start,vInterval_end,proc_out_createlh2_datasource])
+                self.oracledb_connection.commit()
+            else:
+                cursor.callproc('ADMIN.DUPLICATE_TABLE',[self.exploit_db_param.p_username, self.exploit_loading_table,self.exploit_db_param.p_username,self.exploit_running_loading_table, True, proc_out_duplicate_table])
+                self.oracledb_connection.commit()
+            if not proc_out_duplicate_table.getvalue():
+                message = "ERROR, Create running Exploit table  {}".format(self.exploit_running_loading_table)
+                if self.verbose:
+                    self.verbose.log(datetime.now(tz=timezone.utc), "EXPLOIT", "ERROR", log_message=message)
+                raise(Exception(message))
+        else:
+            self.exploit_running_loading_table = optional_args[EXPLOIT_ARG_LOADING_TABLE]
+            message = "Using running Exploit table  {}".format(self.exploit_running_loading_table)
+            if self.verbose:
+                self.verbose.log(datetime.now(tz=timezone.utc), "EXPLOIT", "START", log_message=message)
 
         # Execute a SQL query to fetch activ data from the table "LIST_DATASOURCE_LOADING_..." into a dataframe
-        param_req = "select * from " + self.exploit_loading_table + " where SRC_FLAG_ACTIV = 1 ORDER BY SRC_TYPE,SRC_NAME,SRC_OBJECT_NAME"
+        param_req = "select * from " + self.exploit_running_loading_table + " where SRC_FLAG_ACTIV = 1 ORDER BY SRC_TYPE,SRC_NAME,SRC_OBJECT_NAME"
         cursor.execute(param_req)
         self.df_param = pd.DataFrame(cursor.fetchall())
         self.df_param.columns = [x[0] for x in cursor.description]
         cursor.close()
 
+    def __del__(self):
+        if not self.not_drop_running_loading_table:
+            cursor = self.oracledb_connection.cursor()
+            #message = "Dropping Exploit table {}".format(self.exploit_running_loading_table)
+            #if self.verbose:
+            #    self.verbose.log(datetime.now(tz=timezone.utc), "END_EXPLOIT", "DROP", log_message=message)
+            cursor.callproc('ADMIN.DROP_TABLE', [self.exploit_db_param.p_username,self.exploit_running_loading_table])
+            cursor.close()
     def __iter__(self):
         return self
 
@@ -114,7 +170,7 @@ class BronzeExploit:
         self.idx += 1
         return items
 
-    def update_exploit(self,src_name,src_origin_name,src_object_name,column_name, value,verbose=None):
+    def update_exploit(self,src_name,src_origin_name,src_object_name,column_name, value):
         request = ""
         try:
             cursor = self.oracledb_connection.cursor()
@@ -122,8 +178,8 @@ class BronzeExploit:
 
             # update last date or creation date (depends on table)
             message = "Updating {} = {} on table {}".format(column_name,value,self.exploit_loading_table)
-            if verbose:
-                verbose.log(datetime.now(tz=timezone.utc), "SET_LASTUPDATE", "START", log_message=message,
+            if self.verbose:
+                self.verbose.log(datetime.now(tz=timezone.utc), "SET_LASTUPDATE", "START", log_message=message,
                             log_request=request)
             bindvars = (value,src_name,src_origin_name,src_object_name)
             cursor.execute(request,bindvars)
@@ -132,14 +188,14 @@ class BronzeExploit:
             return True
         except oracledb.Error as err:
             vError = "ERROR {} with values {}".format(request,bindvars)
-            if verbose:
-                verbose.log(datetime.now(tz=timezone.utc), "UPDATE_EXPLOIT", vError,log_message='Oracle DB error : {}'.format(str(err)))
+            if self.verbose:
+                self.verbose.log(datetime.now(tz=timezone.utc), "UPDATE_EXPLOIT", vError,log_message='Oracle DB error : {}'.format(str(err)))
             self.logger.log(error=err, action=vError)
             return False
         except Exception as err:
             vError = "ERROR {} with values {}".format(request, bindvars)
-            if verbose:
-                verbose.log(datetime.now(tz=timezone.utc), "UPDATE_EXPLOIT", vError,str(err))
+            if self.verbose:
+                self.verbose.log(datetime.now(tz=timezone.utc), "UPDATE_EXPLOIT", vError,str(err))
             self.logger.log(error=err, action=vError)
             return False
 
@@ -181,6 +237,8 @@ class BronzeLogger():
         self._init_logger()
         self.instance_bronzeloggerproperties = self.instance_bronzeloggerproperties._replace(SRC_NAME=vSourceProperties.name,SRC_ORIGIN_NAME=vSourceProperties.schema,SRC_OBJECT_NAME=vSourceProperties.table)
 
+    def get_log_table(self):
+        return self.table_name
 
     def log(self,action="SUCCESS",error=None):
         if error:
@@ -454,40 +512,42 @@ class BronzeSourceBuilder:
             return False
 
     def __create_bronze_table__(self,verbose=None):
-        table = self.bronze_table
+        vTable = self.bronze_table
         try:
             if not self.bronze_db_connection:
                 raise
             cursor = self.bronze_db_connection.cursor()
             # Dropping table before recreating
-            drop = 'BEGIN EXECUTE IMMEDIATE \'DROP TABLE ' + table + '\'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;'
+            #drop = 'BEGIN EXECUTE IMMEDIATE \'DROP TABLE ' + vTable + '\'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;'
             if verbose:
-                message = "Dropping table {} : {}".format(table,drop)
+                message = "Dropping table {}.{} ".format(self.bronze_database_param.p_username,vTable)
                 verbose.log(datetime.now(tz=timezone.utc), "DROP_TABLE", "START", log_message=message)
-            cursor.execute(drop)
+            #cursor.execute(drop)
+            cursor.callproc('ADMIN.DROP_TABLE',[self.bronze_database_param.p_username,vTable])
 
             # Create external part table parsing parquet files from bucket root (for incremental mode)
             if self.src_flag_incr:
                 # Create external part table parsing parquet files from bucket root (for incremental mode)
                 root_path = self.bucket_file_path.split("/")[0]+"/"
-                create = 'BEGIN DBMS_CLOUD.CREATE_EXTERNAL_PART_TABLE(table_name =>\'' + table + '\',credential_name =>\'' + self.env + '_CRED_NAME\', file_uri_list =>\'https://objectstorage.eu-frankfurt-1.oraclecloud.com/n/frysfb5gvbrr/b/' + self.bucketname + '/o/'+root_path+'*' + self.parquet_file_name_template + '*.parquet\', format => \'{"type":"parquet", "schema": "first","partition_columns":[{"name":"fetch_year","type":"varchar2(100)"},{"name":"fetch_month","type":"varchar2(100)"},{"name":"fetch_day","type":"varchar2(100)"}]}\'); END;'
+                create = 'BEGIN DBMS_CLOUD.CREATE_EXTERNAL_PART_TABLE(table_name =>\'' + vTable + '\',credential_name =>\'' + self.env + '_CRED_NAME\', file_uri_list =>\'https://objectstorage.eu-frankfurt-1.oraclecloud.com/n/frysfb5gvbrr/b/' + self.bucketname + '/o/'+root_path+'*' + self.parquet_file_name_template + '*.parquet\', format => \'{"type":"parquet", "schema": "first","partition_columns":[{"name":"fetch_year","type":"varchar2(100)"},{"name":"fetch_month","type":"varchar2(100)"},{"name":"fetch_day","type":"varchar2(100)"}]}\'); END;'
                 # create += 'EXECUTE IMMEDIATE '+ '\'CREATE INDEX fetch_date ON ' + table + '(fetch_year,fetch_month,fetch_date)\'; END;'
                 # not supported for external table
             else:
                 # Create external table linked to ONE parquet file (for non incremental mode)
                 root_path = self.bucket_file_path
-                #create = 'BEGIN DBMS_CLOUD.CREATE_EXTERNAL_TABLE(table_name =>\'' + table + '\',credential_name =>\'' + self.env + '_CRED_NAME\', file_uri_list =>\'https://objectstorage.eu-frankfurt-1.oraclecloud.com/n/frysfb5gvbrr/b/' + self.bucketname + '/o/'+root_path+ self.parquet_file_name_template + '.parquet\', format => \'{"type":"parquet", "schema": "first"}\'); END;'
-                create = 'BEGIN DBMS_CLOUD.CREATE_EXTERNAL_TABLE(table_name =>\'' + table + '\',credential_name =>\'' + self.env + '_CRED_NAME\', file_uri_list =>\'https://frysfb5gvbrr.objectstorage.eu-frankfurt-1.oci.customer-oci.com/n/frysfb5gvbrr/b/' + self.bucketname + '/o/' + root_path + self.parquet_file_name_template + '.parquet\', format => \'{"type":"parquet", "schema": "first"}\'); END;'
+                #create = 'BEGIN DBMS_CLOUD.CREATE_EXTERNAL_TABLE(table_name =>\'' + vTable + '\',credential_name =>\'' + self.env + '_CRED_NAME\', file_uri_list =>\'https://objectstorage.eu-frankfurt-1.oraclecloud.com/n/frysfb5gvbrr/b/' + self.bucketname + '/o/'+root_path+ self.parquet_file_name_template + '.parquet\', format => \'{"type":"parquet", "schema": "first"}\'); END;'
+                create = 'BEGIN DBMS_CLOUD.CREATE_EXTERNAL_TABLE(table_name =>\'' + vTable + '\',credential_name =>\'' + self.env + '_CRED_NAME\', file_uri_list =>\'https://frysfb5gvbrr.objectstorage.eu-frankfurt-1.oci.customer-oci.com/n/frysfb5gvbrr/b/' + self.bucketname + '/o/' + root_path + self.parquet_file_name_template + '.parquet\', format => \'{"type":"parquet", "schema": "first"}\'); END;'
             if verbose:
-                message = "Creating table {} : {}".format(table,create)
+                message = "Creating table {} : {}".format(vTable,create)
                 verbose.log(datetime.now(tz=timezone.utc), "CREATE_TABLE", "START", log_message=message)
             cursor.execute(create)
             # Alter column type from BINARY_DOUBLE to NUMBER
-            alter_table = 'BEGIN ADMIN.ALTER_TABLE_COLUMN_TYPE(\'' + self.bronze_database_param.p_username + '\',\'' + table + '\',\'BINARY_DOUBLE\',\'NUMBER\'); END;'
+            #alter_table = 'BEGIN ADMIN.ALTER_TABLE_COLUMN_TYPE(\'' + self.bronze_database_param.p_username + '\',\'' + vTable + '\',\'BINARY_DOUBLE\',\'NUMBER\'); END;'
             if verbose:
-                message = "Altering table columns type {}.{} : {}".format(self.bronze_database_param.p_username,table,alter_table)
+                message = "Altering table columns type {}.{}".format(self.bronze_database_param.p_username,vTable)
                 verbose.log(datetime.now(tz=timezone.utc), "ALTER_TABLE", "START", log_message=message)
-            cursor.execute(alter_table)
+            #cursor.execute(alter_table)
+            cursor.callproc('ADMIN.ALTER_TABLE_COLUMN_TYPE',[self.bronze_database_param.p_username,vTable,'BINARY_DOUBLE','NUMBER'])
             cursor.close()
             return True
 
@@ -556,7 +616,7 @@ class BronzeSourceBuilder:
             merged_parquet_file = os.path.join(self.local_workingdir, merged_parquet_file_name)
             # Use 1st alternative to merge parquet files
             #parquet_files_tomerge = [p["source_file"] for p in self.parquet_file_list]
-            #merge_parquet_files(parquet_files_tomerge,merged_parquet_file,removesource=True,verbose)
+            #merge_parquet_files(parquet_files_tomerge,merged_parquet_file,removesource=True,self.verbose)
             #########################
             # Use 2nd alternative to merge parquet file based on same root names - based on duckdb
             duckdb_db = DBFACTORY.create_instance(self.bronze_config.get_duckdb_settings().dbwrapper,self.bronze_config.get_configuration_file())
@@ -654,7 +714,7 @@ class BronzeGenerator:
                 #print(last_date, type(last_date))
 
                 if not self.__bronzeexploit__.update_exploit(vSourceProperties.name, vSourceProperties.schema, vSourceProperties.table,
-                                              "SRC_DATE_LASTUPDATE", last_date, verbose):
+                                              "SRC_DATE_LASTUPDATE", last_date):
                     break
             generate_result = True
             break
