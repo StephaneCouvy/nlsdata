@@ -110,6 +110,7 @@ class BronzeExploit:
             pid = os.getpid()
             # Temporary table name
             self.exploit_running_loading_table = 'TEMP_' + self.exploit_loading_table + "_" + str(hostname) + "_" + str(pid)
+            self.exploit_running_loading_table = self.exploit_running_loading_table.replace('-','_')
             proc_out_duplicate_table = cursor.var(bool)
             proc_out_createlh2_datasource = cursor.var(str)
 
@@ -123,7 +124,12 @@ class BronzeExploit:
                 cursor.callproc('ADMIN.DUPLICATE_TABLE', [self.exploit_db_param.p_username, self.exploit_loading_table,self.exploit_db_param.p_username,self.exploit_running_loading_table,False,proc_out_duplicate_table])
 
                 vInterval_start = optional_args[EXPLOIT_ARG_RELOAD_ON_ERROR_INTERVAL][0].strftime("%Y-%m-%d %H:%M:%S")
-                vInterval_end = optional_args[EXPLOIT_ARG_RELOAD_ON_ERROR_INTERVAL][1].strftime("%Y-%m-%d %H:%M:%S")
+                # If end date of intervant not provided, then take Now date
+                try:
+                    vInterval_end = optional_args[EXPLOIT_ARG_RELOAD_ON_ERROR_INTERVAL][1].strftime("%Y-%m-%d %H:%M:%S")
+                except IndexError:
+                    vInterval_end = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
                 vLog_table = optional_args[EXPLOIT_ARG_LOG_TABLE]
                 message = "Populate Exploit table {} with previous error tables from log table {} on interval {}->{}".format(self.exploit_running_loading_table,vLog_table,vInterval_start,vInterval_end)
                 if self.verbose:
