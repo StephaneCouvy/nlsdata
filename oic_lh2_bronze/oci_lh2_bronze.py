@@ -558,13 +558,13 @@ class BronzeSourceBuilder:
             return True
 
         except oracledb.Error as err:
-            vError= "ERROR Creating table {}".format(table)
+            vError= "ERROR Creating table {}".format(vTable)
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "CREATE_TABLE", vError,log_message='Oracle DB error : {}'.format(str(err)))
             self.logger.log(error=err, action=vError)
             return False
         except Exception as err:
-            vError = "ERROR Creating table {}".format(table)
+            vError = "ERROR Creating table {}".format(vTable)
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "CREATE_TABLE", vError,log_message=str(err))
             self.logger.log(error=err, action=vError)
