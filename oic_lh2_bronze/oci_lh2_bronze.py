@@ -65,6 +65,14 @@ class BronzeConfig():
             os.makedirs(self.options.tempdir)
         self.tempdir = os.path.join(self.rootdir,self.options.tempdir)
 
+        #create log file based on : lgofile_name_template + _ + Now timestamp + _ + processus PID + . + extension
+        # to have an unique log file name is several process are running in parallel
+        vSplitLogFile = os.path.splitext(self.get_options().verboselogfile)
+        vPid = os.getpid()
+        vTimestamp = round(datetime.now(tz=timezone.utc).timestamp())
+        vLogFile = '{}_{}_{}{}'.format(vSplitLogFile[0],vTimestamp,vPid,vSplitLogFile[1])
+        self.verboselogfile = os.path.join(self.get_tempdir(),vLogFile)
+
     def get_configuration_file(self):
         return self.configuration_file
 
@@ -84,6 +92,8 @@ class BronzeConfig():
         return self.rootdir
     def get_tempdir(self):
         return self.tempdir
+    def get_verboselogfile(self):
+        return self.verboselogfile
 
 class BronzeExploit:
     # Iterator object for list of sources to be imported into Bronze
@@ -176,6 +186,9 @@ class BronzeExploit:
         self.idx += 1
         return items
 
+    def get_loading_tables(self):
+        return (self.exploit_loading_table,self.exploit_running_loading_table)
+
     def update_exploit(self,src_name,src_origin_name,src_object_name,column_name, value):
         request = ""
         try:
@@ -220,6 +233,7 @@ class BronzeLogger():
     def __del__(self):
         if self.cursor:
             self.cursor.close()
+
     def _init_logger(self):
         if self.bronze_config:
             self.__del__()
