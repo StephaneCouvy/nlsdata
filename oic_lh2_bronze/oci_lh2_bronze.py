@@ -65,12 +65,12 @@ class BronzeConfig():
             os.makedirs(self.options.tempdir)
         self.tempdir = os.path.join(self.rootdir,self.options.tempdir)
 
-        #create log file based on : lgofile_name_template + _ + Now timestamp + _ + processus PID + . + extension
+        #create log file based on : lgofile_name_template + _ + Now Date + _ + processus PID + . + extension
         # to have an unique log file name is several process are running in parallel
         vSplitLogFile = os.path.splitext(self.get_options().verboselogfile)
         vPid = os.getpid()
-        vTimestamp = round(datetime.now(tz=timezone.utc).timestamp())
-        vLogFile = '{}_{}_{}{}'.format(vSplitLogFile[0],vTimestamp,vPid,vSplitLogFile[1])
+        vNow = datetime.now(tz=timezone.utc).strftime('%Y%m%d%H%M%S')
+        vLogFile = '{}_{}_{}{}'.format(vSplitLogFile[0],vNow,vPid,vSplitLogFile[1])
         self.verboselogfile = os.path.join(self.get_tempdir(),vLogFile)
 
     def get_configuration_file(self):
@@ -567,7 +567,7 @@ class BronzeSourceBuilder:
                 message = "Altering table columns type {}.{}".format(self.bronze_database_param.p_username,vTable)
                 verbose.log(datetime.now(tz=timezone.utc), "ALTER_TABLE", "START", log_message=message)
             #cursor.execute(alter_table)
-            cursor.callproc('ADMIN.ALTER_TABLE_COLUMN_TYPE',[self.bronze_database_param.p_username,vTable,'BINARY_DOUBLE','NUMBER'])
+            cursor.callproc('ADMIN.ALTER_TABLE_COLUMN_TYPE',[self.bronze_database_param.p_username,vTable,'BINARY_DOUBLE','NUMBER(38,10)'])
             cursor.close()
             return True
 
