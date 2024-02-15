@@ -4,10 +4,10 @@ import os.path
 
 import pandas as pd
 
-from nlsoci.oci_bucket import *
-from nlstools.config_settings import *
-from nlstools.tool_kits import *
-from nlsdb.dbwrapper_factory import *
+from NLSOCI.oci_bucket import *
+from NLSTOOLS.config_settings import *
+from NLSTOOLS.tool_kits import *
+from NLSDB.dbwrapper_factory import *
 
 EXPLOIT_ARG_LOADING_TABLE = 'l'
 EXPLOIT_ARG_LOG_TABLE = 'o'
@@ -217,6 +217,9 @@ class BronzeExploit:
                 self.verbose.log(datetime.now(tz=timezone.utc), "UPDATE_EXPLOIT", vError,str(err))
             self.logger.log(error=err, action=vError)
             return False
+
+    def __str__(self):
+        return f"BronzeExploit: exploit_running_loading_table={self.exploit_running_loading_table}, df_param={self.df_param}"
 
 class BronzeLogger():
     def __init__(self, bronze_config,verbose=None):
