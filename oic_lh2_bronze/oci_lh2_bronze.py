@@ -305,7 +305,7 @@ class BronzeSourceBuilder:
         self.src_name = src_name
         self.src_schema = src_origin_name
         self.src_table = src_table_name
-        self.src_table_whereclause = src_table_where
+        self.src_object_constraint = src_table_where
         self.src_flag_incr = src_flag_incr
         self.src_date_criteria = src_date_criteria
         self.src_date_lastupdate = src_date_lastupdate
@@ -358,8 +358,8 @@ class BronzeSourceBuilder:
         # For DB source, build select request
         self.where = ''
         self.db_execute_bind = []
-        if self.src_table_whereclause != None:
-            self.where += self.src_table_whereclause
+        if self.src_object_constraint != None:
+            self.where += self.src_object_constraint
         if self.src_date_criteria != None and self.src_date_lastupdate != None:
             if self.where != "":
                 self.where += " AND "
