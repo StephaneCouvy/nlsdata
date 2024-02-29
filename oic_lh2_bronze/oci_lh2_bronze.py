@@ -719,7 +719,7 @@ class BronzeGenerator:
             generate_result = False
             # 1 Fetch data from source
             self.__bronzesourcebuilder__.pre_fetch_source()
-            if not self.__bronzesourcebuilder__.fetch_source(verbose):
+            if not self.__bronzesourcebuilder__.fetch_soure(verbose):
                 break
 
             # 2 Upload parquets files to bucket
