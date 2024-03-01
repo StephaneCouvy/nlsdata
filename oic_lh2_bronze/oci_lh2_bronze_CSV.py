@@ -21,7 +21,7 @@ class BronzeSourceBuilderFileCSV(BronzeSourceBuilderFile):
 
     def __import_file__(self):
         """
-        Cette méthode lit les fichiers CSV
+        Cette méthode lit les fichiers CSV à partir du chemin(src_schema)
         """
         if os.path.exists(self.src_schema):
             print("Le chemin est valide.")
@@ -30,6 +30,7 @@ class BronzeSourceBuilderFileCSV(BronzeSourceBuilderFile):
         file = pd.read_csv(self.src_schema)
         print("Successfully read CSV file")
         return file
+
 
 
 

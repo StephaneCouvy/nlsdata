@@ -13,6 +13,9 @@ class BronzeSourceBuilderFile(BronzeSourceBuilder):
         self.parquet_file_id = self.__get_last_parquet_idx_in_bucket__()
 
     def fetch_source(self,verbose=None):
+        """
+       cette méthode lit les fichiers CSV ou EXCEL/TURKEY, les transforme en fichiers parquet et adapte les stats
+        """
         try:
             if verbose:
                 message = "Extracting data from file {0},{1},{2}".format(self.src_name, self.src_schema, self.src_table)
