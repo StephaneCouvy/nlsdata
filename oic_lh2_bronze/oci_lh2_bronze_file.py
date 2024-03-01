@@ -14,6 +14,9 @@ class BronzeSourceBuilderFile(BronzeSourceBuilder):
         self.request = "Import File"
 
     def fetch_source(self,verbose=None):
+        """
+       cette méthode lit les fichiers CSV ou EXCEL/TURKEY, les transforme en fichiers parquet et adapte les stats
+        """
         try:
             if verbose:
                 message = "Extracting data from file {0},{1},{2}".format(self.src_name, self.src_schema, self.src_table)
