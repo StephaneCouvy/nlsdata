@@ -1,5 +1,5 @@
 import pandas as pd
-from nlsdata.oic_lh2_bronze.oci_lh2_bronze import *
+from NLSDATA.oic_lh2_bronze.oci_lh2_bronze import *
 
 
 
@@ -20,7 +20,7 @@ class BronzeSourceBuilderFile(BronzeSourceBuilder):
             if verbose:
                 message = "Extracting data from file {0},{1},{2}".format(self.src_name, self.src_schema, self.src_table)
                 verbose.log(datetime.now(tz=timezone.utc), "FETCH", "START", log_message=message)
-                table=self.__import_file__()     #call __import_file__
+                table = self.__import_file__()     #call __import_file__
                 self.df_table_content = table.astype('string')
                 self.__create_parquet_file__()
                 self.__update_fetch_row_stats__()

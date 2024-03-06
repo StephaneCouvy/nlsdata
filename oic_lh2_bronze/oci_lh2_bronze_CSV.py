@@ -1,14 +1,14 @@
 
 import pandas as pd
 import oci
-from oci_lh2_bronze_file import BronzeSourceBuilderFile
-from nlsoci.oci_bucket import OCIBucket, OCIEnv
-from nlsdata.oic_lh2_bronze.oci_lh2_bronze import BronzeConfig, BronzeLogger, BronzeSourceBuilder
-from nlsoci import *
+from NLSDATA.oic_lh2_bronze.oci_lh2_bronze_file import BronzeSourceBuilderFile
+from NLSOCI.oci_bucket import OCIBucket, OCIEnv
+from NLSDATA.oic_lh2_bronze.oci_lh2_bronze import BronzeConfig, BronzeLogger, BronzeSourceBuilder
+from NLSOCI import *
 from datetime import datetime, timezone
 import io
 import os
-from nlstools.tool_kits import *
+from NLSTOOLS.tool_kits import *
 
 
 class BronzeSourceBuilderFileCSV(BronzeSourceBuilderFile):
@@ -31,11 +31,8 @@ class BronzeSourceBuilderFileCSV(BronzeSourceBuilderFile):
         print("Successfully read CSV file")
         return file
 
-
-
-
 #Création de l'environnement de test pour tester les fonctions au dessus
-configuration_file = 'C:\python\project\LH2Bronze_Loader\config_PCoumayma.json'
+configuration_file = 'C:\Python\projects\LH2Bronze_Loader\config_PCBenjamin.json'
 bronze_config = BronzeConfig(configuration_file)
 #print(bronze_config)
 bronze_logger = BronzeLogger(bronze_config)
@@ -48,10 +45,10 @@ else:
 
 #Instanciation des paramètres pour le BronzeourceBuilder
 br_config = bronze_config
-src_type = "FILE"
+src_type = "FILE_CSV"
 src_name = "CSV"
-src_origin_name = 'C:\\python\\project\\nlspackages\\nlsdata\\oic_lh2_bronze\\decompressed files\\0001000000674801.csv'
-src_table_name = "LH2_DATASOURCE_LOADING_DEBUG_OUMAYMA"
+src_origin_name = 'C:\Python\projects\LH2Bronze_Loader\\files\\0001000000674520.csv'
+src_table_name = "LH2_DATASOURCE_LOADING_DEBUG_BENJAMIN"
 src_table_where = ""
 src_flag_incr = False
 src_date_criteria = ""
@@ -61,7 +58,7 @@ force_encode = False
 logger = bronze_logger
 
 
-#Création du BronzeSourceBuilder
+#Création du BronzeSourceBui0lder
 bronze_builder = BronzeSourceBuilder(br_config, src_type, src_name, src_origin_name, src_table_name, src_table_where,
                                      src_flag_incr, src_date_criteria,src_date_lastupdate, force_encode, logger)
 #print(bronze_builder)
@@ -77,7 +74,3 @@ source=BronzeSourceBuilderFileCSV(bronze_builder.bronze_config, bronze_builder.s
 
                                                                    logger)
 source.fetch_source(verbose)
-
-
-
-
