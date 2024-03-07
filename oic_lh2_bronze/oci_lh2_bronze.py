@@ -55,15 +55,15 @@ class BronzeConfig():
         #db_oracle.set_db_settings(self.oracledb_settings)
 
         if self.options.rootdir != '':
-            os.chdir(self.options.rootdir)
-            self.rootdir = os.getcwd()
+            self.rootdir = path_replace_tilde_with_home(self.options.rootdir)
+            os.chdir(self.rootdir)
         else:
             self.rootdir = ''
 
         # Create a temporary directory if it doesn't exist
-        if not os.path.exists(self.options.tempdir):
-            os.makedirs(self.options.tempdir)
-        self.tempdir = os.path.join(self.rootdir,self.options.tempdir)
+        self.tempdir = os.path.join(self.rootdir, self.options.tempdir)
+        if not os.path.exists(self.tempdir):
+            os.makedirs(self.tempdir)
 
         #create log file based on : lgofile_name_template + _ + Now Date + _ + processus PID + . + extension
         # to have an unique log file name is several process are running in parallel
