@@ -37,6 +37,11 @@ class BronzeConfig():
         self.oci_settings = get_parser_config_settings("oci")(self.configuration_file,"oci")
         #self.odbcdb_settings = get_parser_config_settings("odbcdb_settings")(self.configuration_file,"odbcdb_settings")
 
+        #if full path is not specified for OCI config file, then set same folder than configuration file
+        if not os.path.dirname(self.oci_settings.config_path):
+            vOci_config_path = os.path.join(os.path.dirname(self.configuration_file),self.oci_settings.config_path)
+            self.oci_settings = self.oci_settings._replace(config_path=vOci_config_path)
+
         if self.options.db_arraysize.isdigit():
             global DB_ARRAYSIZE
             DB_ARRAYSIZE = eval(self.options.db_arraysize)
@@ -61,7 +66,7 @@ class BronzeConfig():
             self.rootdir = ''
 
         # Create a temporary directory if it doesn't exist
-        self.tempdir = os.path.join(self.rootdir, self.options.tempdir)
+        self.tempdir = self.options.tempdir
         if not os.path.exists(self.tempdir):
             os.makedirs(self.tempdir)
 
