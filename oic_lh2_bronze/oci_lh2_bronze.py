@@ -61,9 +61,9 @@ class BronzeConfig():
             self.rootdir = ''
 
         # Create a temporary directory if it doesn't exist
-        if not os.path.exists(self.options.tempdir):
-            os.makedirs(self.options.tempdir)
-        self.tempdir = os.path.join(self.rootdir,self.options.tempdir)
+        self.tempdir = os.path.join(self.rootdir, self.options.tempdir)
+        if not os.path.exists(self.tempdir):
+            os.makedirs(self.tempdir)
 
         #create log file based on : lgofile_name_template + _ + Now Date + _ + processus PID + . + extension
         # to have an unique log file name is several process are running in parallel
