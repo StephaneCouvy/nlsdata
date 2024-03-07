@@ -1,5 +1,5 @@
 import pandas as pd
-from nlsdata.oic_lh2_bronze.oci_lh2_bronze import *
+from nlsdata.oci_lh2_bronze.oci_lh2_bronze import *
 
 class BronzeSourceBuilderFile(BronzeSourceBuilder):
     def __init__(self, br_config, src_name, src_origin_name, src_table_name, src_table_where, src_flag_incr,
