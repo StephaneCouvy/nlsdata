@@ -30,7 +30,7 @@ class BronzeConfig():
     #Provide a generic method to get an oracledb connection, depending on database options defined into json
 
     def __init__(self,configuration_file):
-        self.configuration_file = configuration_file
+        self.configuration_file = path_replace_tilde_with_home(configuration_file)
         self.options = get_parser_config_settings("options")(self.configuration_file,"options")
         #self.oracledb_settings = get_parser_config_settings("oracledb_settings")(self.configuration_file,"oracledb_settings")
         self.duckdb_settings = get_parser_config_settings("duckdb_settings")(self.configuration_file,"duckdb_settings")
@@ -40,7 +40,9 @@ class BronzeConfig():
         #if full path is not specified for OCI config file, then set same folder than configuration file
         if not os.path.dirname(self.oci_settings.config_path):
             vOci_config_path = os.path.join(os.path.dirname(self.configuration_file),self.oci_settings.config_path)
-            self.oci_settings = self.oci_settings._replace(config_path=vOci_config_path)
+        else:
+            vOci_config_path = path_replace_tilde_with_home(self.oci_settings.config_path)
+        self.oci_settings = self.oci_settings._replace(config_path=vOci_config_path)
 
         if self.options.db_arraysize.isdigit():
             global DB_ARRAYSIZE
@@ -70,7 +72,7 @@ class BronzeConfig():
         if not os.path.exists(self.tempdir):
             os.makedirs(self.tempdir)
 
-        #create log file based on : lgofile_name_template + _ + Now Date + _ + processus PID + . + extension
+        #create log file based on : logfile_name_template + _ + Now Date + _ + processus PID + . + extension
         # to have an unique log file name is several process are running in parallel
         vSplitLogFile = os.path.splitext(self.get_options().verboselogfile)
         vPid = os.getpid()
@@ -250,9 +252,11 @@ class BronzeLogger():
             self.oracledb_connection = self.db.create_db_connection(self.logger_db_param)
             self.cursor = self.oracledb_connection.cursor()
 
+            # Set Process_info = hostname:user:pid
+            vProcess_info = "{}:{}:{}".format(socket.gethostname(),os.getlogin(),os.getpid())
             self.BronzeLoggerProperties = self.db.create_namedtuple_from_table('BronzeLoggerProperties',self.table_name)
             #self.instance_bronzeloggerproperties = self.BronzeLoggerProperties(START_TIME=datetime.now(tz=timezone.utc),END_TIME=None, ENVIRONMENT=self.env,ACTION='',SRC_NAME='',SRC_ORIGIN_NAME='',SRC_OBJECT_NAME='',REQUEST='',ERROR_TYPE='',ERROR_MESSAGE='',STAT_ROWS_COUNT=0,STAT_ROWS_SIZE=0,STAT_TOTAL_DURATION=0,STAT_FETCH_DURATION=0,STAT_UPLOAD_PARQUETS_DURATION=0,STAT_SENT_PARQUETS_COUNT=0,STAT_SENT_PARQUETS_SIZE=0)
-            self.instance_bronzeloggerproperties = self.BronzeLoggerProperties(START_TIME=datetime.now(tz=timezone.utc),ENVIRONMENT=self.env)
+            self.instance_bronzeloggerproperties = self.BronzeLoggerProperties(START_TIME=datetime.now(tz=timezone.utc),ENVIRONMENT=self.env,PROCESS_INFO=vProcess_info)
 
     def link_to_bronze_source(self,br_source):
         self.bronze_source = br_source
