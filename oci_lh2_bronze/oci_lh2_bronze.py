@@ -72,13 +72,12 @@ class BronzeConfig():
         if not os.path.exists(self.tempdir):
             os.makedirs(self.tempdir)
 
-        #create log file based on : logfile_name_template + _ + Now Date + _ + processus PID + . + extension
-        # to have an unique log file name is several process are running in parallel
-        vSplitLogFile = os.path.splitext(self.get_options().verboselogfile)
-        vPid = os.getpid()
-        vNow = datetime.now(tz=timezone.utc).strftime('%Y%m%d%H%M%S')
-        vLogFile = '{}_{}_{}{}'.format(vSplitLogFile[0],vNow,vPid,vSplitLogFile[1])
-        self.verboselogfile = os.path.join(self.get_tempdir(),vLogFile)
+        # return absolute Path for log file.
+        # if full path is not specified, then add workging dir ahead
+        if not os.path.dirname(self.get_options().verboselogfile):
+            self.verboselogfile = os.path.join(self.get_tempdir(),self.get_options().verboselogfile)
+        else:
+            self.verboselogfile = self.get_options().verboselogfile
 
     def get_configuration_file(self):
         return self.configuration_file
