@@ -1,1 +1,1 @@
-__all__=["oci_lh2_bronze","oci_lh2_bronze_file","oci_lh2_bronze_db"]
+__all__=["oci_lh2_bronze","oci_lh2_bronze_file","oci_lh2_bronze_db", "oci_lh2_bronze_EXCEL", "oci_lh2_bronze_CSV", "oci_lh2_bronze_BUCKET_CSV"]

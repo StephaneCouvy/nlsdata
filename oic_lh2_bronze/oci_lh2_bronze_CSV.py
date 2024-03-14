@@ -1,4 +1,3 @@
-
 import pandas as pd
 import oci
 from NLSDATA.oic_lh2_bronze.oci_lh2_bronze_file import BronzeSourceBuilderFile
@@ -11,66 +10,44 @@ import os
 from NLSTOOLS.tool_kits import *
 
 
+# Define a class BronzeSourceBuilderFileCSV inheriting from BronzeSourceBuilderFile
 class BronzeSourceBuilderFileCSV(BronzeSourceBuilderFile):
+
     def __init__(self, br_config, src_name, src_origin_name, src_table_name, src_table_where, src_flag_incr,
                  src_date_where, src_date_lastupdate, force_encode, logger):
         super().__init__(br_config, src_name, src_origin_name, src_table_name, src_table_where, src_flag_incr,
                          src_date_where, src_date_lastupdate, force_encode, logger)
+        # Set the default directory for CSV files
+        self.directory = 'files'
 
-
-
+    # Method to import CSV files
     def __import_file__(self):
         """
-        Cette méthode lit les fichiers CSV à partir du chemin(src_schema)
+        This method reads CSV files from the specified directory (src_schema).
         """
-        if os.path.exists(self.src_schema):
-            print("Le chemin est valide.")
-        else:
-            print("Le chemin n'est pas valide ou le fichier n'existe pas")
-        file = pd.read_csv(self.src_schema)
-        print("Successfully read CSV file")
-        return file
+        dataframe = None
 
-#Création de l'environnement de test pour tester les fonctions au dessus
-configuration_file = 'C:\Python\projects\LH2Bronze_Loader\config_PCBenjamin.json'
-bronze_config = BronzeConfig(configuration_file)
-#print(bronze_config)
-bronze_logger = BronzeLogger(bronze_config)
-#print(bronze_logger)
+        try:
+            if os.path.exists(self.directory):
+                print("The path is valid.")
 
-if bronze_config.get_options().verbose:
-    verbose = Logger(bronze_config.get_options().verboselogfile)
-else:
-    verbose = None
+                # Loop through files in the directory
+                for file_name in os.listdir(self.directory):
+                    # Check if the file is a CSV file
+                    if file_name.endswith('.csv'):
+                        # Read CSV file into a DataFrame
+                        csv_dataframe = pd.read_csv(os.path.join(self.directory, file_name))
 
-#Instanciation des paramètres pour le BronzeourceBuilder
-br_config = bronze_config
-src_type = "FILE_CSV"
-src_name = "CSV"
-src_origin_name = 'C:\Python\projects\LH2Bronze_Loader\\files\\0001000000674520.csv'
-src_table_name = "LH2_DATASOURCE_LOADING_DEBUG_BENJAMIN"
-src_table_where = ""
-src_flag_incr = False
-src_date_criteria = ""
-src_date_where = ""
-src_date_lastupdate = ""
-force_encode = False
-logger = bronze_logger
+                        # If DataFrame is empty, assign the CSV DataFrame
+                        if dataframe is None:
+                            dataframe = csv_dataframe
+                        # If DataFrame is not empty, concatenate CSV DataFrame with existing DataFrame
+                        else:
+                            dataframe = pd.concat([dataframe, csv_dataframe], ignore_index=True)
+            else:
+                print("The path is not valid or the directory does not exist")
 
+        except Exception as e:
+            print(f"An error occurred: {e}")
 
-#Création du BronzeSourceBui0lder
-bronze_builder = BronzeSourceBuilder(br_config, src_type, src_name, src_origin_name, src_table_name, src_table_where,
-                                     src_flag_incr, src_date_criteria,src_date_lastupdate, force_encode, logger)
-#print(bronze_builder)
-
-#Création du BronzeSourceBuilderFile à partir du BronzeSourceBuilder
-bronze_source_builder_file = BronzeSourceBuilderFile(bronze_builder.bronze_config, bronze_builder.src_name, bronze_builder.src_schema, bronze_builder.src_table, bronze_builder.src_table_whereclause, bronze_builder.src_flag_incr,
-                 src_date_where, bronze_builder.src_date_lastupdate, bronze_builder.force_encode, logger)
-
-#Création du BronzeSourceBuilderFileCSV
-source=BronzeSourceBuilderFileCSV(bronze_builder.bronze_config, bronze_builder.src_name, bronze_builder.src_schema,
-                                                                    bronze_builder.src_table, bronze_builder.src_table_whereclause, bronze_builder.src_flag_incr,
-                                                                    src_date_where, bronze_builder.src_date_lastupdate, bronze_builder.force_encode,
-
-                                                                   logger)
-source.fetch_source(verbose)
+        return dataframe
