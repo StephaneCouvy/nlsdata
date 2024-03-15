@@ -17,37 +17,18 @@ class BronzeSourceBuilderFileCSV(BronzeSourceBuilderFile):
                  src_date_where, src_date_lastupdate, force_encode, logger):
         super().__init__(br_config, src_name, src_origin_name, src_table_name, src_table_where, src_flag_incr,
                          src_date_where, src_date_lastupdate, force_encode, logger)
-        # Set the default directory for CSV files
-        self.directory = 'files'
 
     # Method to import CSV files
     def __import_file__(self):
         """
         This method reads CSV files from the specified directory (src_schema).
         """
-        dataframe = None
-
         try:
-            if os.path.exists(self.directory):
-                print("The path is valid.")
-
-                # Loop through files in the directory
-                for file_name in os.listdir(self.directory):
-                    # Check if the file is a CSV file
-                    if file_name.endswith('.csv'):
-                        # Read CSV file into a DataFrame
-                        csv_dataframe = pd.read_csv(os.path.join(self.directory, file_name))
-
-                        # If DataFrame is empty, assign the CSV DataFrame
-                        if dataframe is None:
-                            dataframe = csv_dataframe
-                        # If DataFrame is not empty, concatenate CSV DataFrame with existing DataFrame
-                        else:
-                            dataframe = pd.concat([dataframe, csv_dataframe], ignore_index=True)
+            if os.path.exists(self.src_schema):
+                dataframe = pd.read_csv(self.src_schema)
+                return dataframe
             else:
-                print("The path is not valid or the directory does not exist")
-
+                raise FileNotFoundError("The path is not valid or the file does not exist")
         except Exception as e:
-            print(f"An error occurred: {e}")
-
-        return dataframe
+            print("An error occurred:", str(e))
+            return None

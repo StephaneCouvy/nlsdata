@@ -14,6 +14,23 @@ class BronzeSourceBuilderFile(BronzeSourceBuilder):
         # Get the index of the last Parquet file in the bucket
         self.parquet_file_id = self.__get_last_parquet_idx_in_bucket__()
 
+
+    def extract_prefix(self, string):
+        """
+        This method extracts the prefix from a string separated by slashes ("/").
+        """
+        # Split the string into parts using "/" as a separator
+        parts = string.split('/')
+
+        # Check if there is more than one part (i.e., if there is at least one slash)
+        if len(parts) > 1:
+            # Join all parts of the string except the last one using "/" and add a trailing slash
+            return '/'.join(parts[:-1]) + '/'
+        else:
+            # If there is only one part (no slashes), return an empty string
+            return ''
+
+
     # Method to fetch data from the source
     def fetch_source(self, verbose=None):
         """
@@ -24,16 +41,16 @@ class BronzeSourceBuilderFile(BronzeSourceBuilder):
                 # Log start of fetching
                 message = "Extracting data from file {0}, {1}, {2}".format(self.src_name, self.src_schema, self.src_table)
                 verbose.log(datetime.now(tz=timezone.utc), "FETCH", "START", log_message=message)
-                # Call method to import file
-                table = self.__import_file__()
-                # Store table content as string types
-                self.df_table_content = table.astype('string')
-                # Create Parquet file
-                self.__create_parquet_file__()
-                # Update fetch row statistics
-                self.__update_fetch_row_stats__()
-                print("Parquet file is created")
-                print("Statistics have been fetched")
+                directory = self.extract_prefix(self.src_schema)
+                for file in os.listdir(directory):
+                    # Call method to import file
+                    table = self.__import_file__()
+                    # Store table content as string types
+                    self.df_table_content = table.astype('string')
+                    # Create Parquet file
+                    self.__create_parquet_file__()
+                    # Update fetch row statistics
+                    self.__update_fetch_row_stats__()
             return True
         except Exception as err:
             # Log error if fetching fails
@@ -43,6 +60,7 @@ class BronzeSourceBuilderFile(BronzeSourceBuilder):
             self.logger.log_error(error=message, action="error fetch")
             self.__update_fetch_row_stats__()
             return False
+
 
     # Method to import file (to be implemented)
     def __import_file__(self, *fileargs):
