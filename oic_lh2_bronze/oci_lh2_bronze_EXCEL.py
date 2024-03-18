@@ -26,13 +26,14 @@ class BronzeSourceBuilderFileEXCEL(BronzeSourceBuilderFile):
         This method reads Excel and Turkey files.
         """
         # Determine file type based on source name
+        _file = fileargs[0]
         match self.src_name:
             case "TURKEY":
                 # Read Excel file with skipping the first row
-                table = pd.read_excel(self.src_schema, sheet_name=self.src_table, skiprows=1)
+                table = pd.read_excel(_file, sheet_name=self.src_table, skiprows=1)
             case "EXCEL":
                 # Read Excel file without skipping rows
-                table = pd.read_excel(self.src_schema, sheet_name=self.src_table, skiprows=0)
+                table = pd.read_excel(_file, sheet_name=self.src_table, skiprows=0)
             case _:
                 return False
         return table
