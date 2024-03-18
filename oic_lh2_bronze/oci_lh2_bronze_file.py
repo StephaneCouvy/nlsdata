@@ -1,45 +1,67 @@
 import pandas as pd
-from nlsdata.oic_lh2_bronze.oci_lh2_bronze import *
+from NLSDATA.oic_lh2_bronze.oci_lh2_bronze import *
 
-
-
+# Define a class BronzeSourceBuilderFile inheriting from BronzeSourceBuilder
 class BronzeSourceBuilderFile(BronzeSourceBuilder):
     def __init__(self, br_config, src_name, src_origin_name, src_table_name, src_table_where, src_flag_incr,
-                 src_date_where, src_date_lastupdate, force_encode,logger):
+                 src_date_where, src_date_lastupdate, force_encode, logger):
         super().__init__(br_config, "FILE", src_name, src_origin_name, src_table_name, src_table_where,
-                         src_flag_incr, src_date_where, src_date_lastupdate,force_encode,logger)
+                         src_flag_incr, src_date_where, src_date_lastupdate, force_encode, logger)
+        # Construct the bronze table name based on source name and table
         self.bronze_table = self.src_name + "_" + self.src_table.replace(" ", "_")
+        # Define the path for storing files in the bucket
         self.bucket_file_path = self.src_table.replace(" ", "_") + "/" + self.year + "/" + self.month + "/" + self.day + "/"
+        # Get the index of the last Parquet file in the bucket
         self.parquet_file_id = self.__get_last_parquet_idx_in_bucket__()
 
-    def fetch_source(self,verbose=None):
+
+    def extract_prefix(self, string):
         """
-       cette méthode lit les fichiers CSV ou EXCEL/TURKEY, les transforme en fichiers parquet et adapte les stats
+        This method extracts the prefix from a string separated by slashes ("/").
+        """
+        # Split the string into parts using "/" as a separator
+        parts = string.split('/')
+
+        # Check if there is more than one part (i.e., if there is at least one slash)
+        if len(parts) > 1:
+            # Join all parts of the string except the last one using "/" and add a trailing slash
+            return '/'.join(parts[:-1]) + '/'
+        else:
+            # If there is only one part (no slashes), return an empty string
+            return ''
+
+
+    # Method to fetch data from the source
+    def fetch_source(self, verbose=None):
+        """
+        This method reads CSV or Excel/Turkey files, transforms them into Parquet files, and updates statistics.
         """
         try:
             if verbose:
-                message = "Extracting data from file {0},{1},{2}".format(self.src_name, self.src_schema, self.src_table)
+                # Log start of fetching
+                message = "Extracting data from file {0}, {1}, {2}".format(self.src_name, self.src_schema, self.src_table)
                 verbose.log(datetime.now(tz=timezone.utc), "FETCH", "START", log_message=message)
-                table=self.__import_file__()     #call __import_file__
-                self.df_table_content = table.astype('string')
-                self.__create_parquet_file__()
-                self.__update_fetch_row_stats__()
-                print("parquet file is made")
-                print("stats have been fetched")
+                directory = self.extract_prefix(self.src_schema)
+                for file in os.listdir(directory):
+                    # Call method to import file
+                    table = self.__import_file__()
+                    # Store table content as string types
+                    self.df_table_content = table.astype('string')
+                    # Create Parquet file
+                    self.__create_parquet_file__()
+                    # Update fetch row statistics
+                    self.__update_fetch_row_stats__()
             return True
         except Exception as err:
-                message = "Extracting error from {0}, file {1},{2} : {3}".format(self.src_name,self.src_schema,self.src_table,str(err))
-                if verbose:
-                    verbose.log(datetime.now(tz=timezone.utc), "FETCH", "ERROR", log_message=message)
-                self.logger.log_error(error=message, action = "error fetch")
-                self.__update_fetch_row_stats__()
-                return False
+            # Log error if fetching fails
+            message = "Extracting error from {0}, file {1}, {2}: {3}".format(self.src_name, self.src_schema, self.src_table, str(err))
+            if verbose:
+                verbose.log(datetime.now(tz=timezone.utc), "FETCH", "ERROR", log_message=message)
+            self.logger.log_error(error=message, action="error fetch")
+            self.__update_fetch_row_stats__()
+            return False
 
 
+    # Method to import file (to be implemented)
     def __import_file__(self, *fileargs):
         pass
-
-
-
-
-
