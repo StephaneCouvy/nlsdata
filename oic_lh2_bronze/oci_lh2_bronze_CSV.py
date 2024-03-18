@@ -19,13 +19,14 @@ class BronzeSourceBuilderFileCSV(BronzeSourceBuilderFile):
                          src_date_where, src_date_lastupdate, force_encode, logger)
 
     # Method to import CSV files
-    def __import_file__(self):
+    def __import_file__(self,*fileargs):
         """
-        This method reads CSV files from the specified directory (src_schema).
+        This method reads CSV files from the specified directory fileargs[0].
         """
         try:
-            if os.path.exists(self.src_schema):
-                dataframe = pd.read_csv(self.src_schema)
+            _file = fileargs[0]
+            if os.path.exists(_file):
+                dataframe = pd.read_csv(_file)
                 return dataframe
             else:
                 raise FileNotFoundError("The path is not valid or the file does not exist")
