@@ -30,7 +30,6 @@ class BronzeSourceBuilderFile(BronzeSourceBuilder):
             # If there is only one part (no slashes), return an empty string
             return ''
 
-
     # Method to fetch data from the source
     def fetch_source(self, verbose=None):
         """
@@ -41,10 +40,11 @@ class BronzeSourceBuilderFile(BronzeSourceBuilder):
                 # Log start of fetching
                 message = "Extracting data from file {0}, {1}, {2}".format(self.src_name, self.src_schema, self.src_table)
                 verbose.log(datetime.now(tz=timezone.utc), "FETCH", "START", log_message=message)
-                directory = self.extract_prefix(self.src_schema)
+                #directory = self.extract_prefix(self.src_schema)
+                list_files = glob.glob(self.src_schema)
                 for file in os.listdir(directory):
                     # Call method to import file
-                    table = self.__import_file__()
+                    table = self.__import_file__(file)
                     # Store table content as string types
                     self.df_table_content = table.astype('string')
                     # Create Parquet file
