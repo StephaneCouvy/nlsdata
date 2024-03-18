@@ -42,7 +42,7 @@ class BronzeSourceBuilderFile(BronzeSourceBuilder):
                 verbose.log(datetime.now(tz=timezone.utc), "FETCH", "START", log_message=message)
                 #directory = self.extract_prefix(self.src_schema)
                 list_files = glob.glob(self.src_schema)
-                for file in os.listdir(directory):
+                for file in list_files:
                     # Call method to import file
                     table = self.__import_file__(file)
                     # Store table content as string types
