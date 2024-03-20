@@ -30,7 +30,7 @@ class BronzeSourceBuilderFile(BronzeSourceBuilder):
             self.df_table_content = table.astype('string')
             res = self.__create_parquet_file__()
             if not res:
-                raise
+                raise Exception("Error creating parquet file")
             self.__update_fetch_row_stats__()
             return True
         except Exception as err:

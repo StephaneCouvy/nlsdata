@@ -17,14 +17,14 @@ class BronzeSourceBuilderDb(BronzeSourceBuilder):
 
         if not self.source_db_connection:
             vError = "ERROR connecting to : {}".format(self.src_name)
-            raise(vError)
+            raise Exception(vError)
         # Customize select to force encode of columns
         self.__custom_select_from_source__()
 
     def fetch_source(self,verbose=None):
         try:
             if not self.source_db_connection:
-                raise
+                raise Exception("Error no DB connection")
             # Execute a SQL query to fetch all data from the current table
             if verbose:
                 message = "Mode {2} : Extracting data {0},{1}".format(self.src_schema, self.src_table,SQL_READMODE)
@@ -50,7 +50,7 @@ class BronzeSourceBuilderDb(BronzeSourceBuilder):
                         # create parquet file for current chunk dataframe
                         res = self.__create_parquet_file__(verbose)
                         if not res:
-                            raise
+                            raise Exception("Error creating parquet file")
                         # update total count of imported rows
                         self.__update_fetch_row_stats__()
                         elapsed = datetime.now() -self.fetch_start
@@ -65,7 +65,7 @@ class BronzeSourceBuilderDb(BronzeSourceBuilder):
                         # create parquet file for current chunk dataframe
                         res = self.__create_parquet_file__(verbose)
                         if not res:
-                            raise
+                            raise Exception("Error creating parquet file")
                         ## update total count of imported rows
                         self.__update_fetch_row_stats__()
                         elapsed = datetime.now() - self.fetch_start

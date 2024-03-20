@@ -159,7 +159,7 @@ class BronzeExploit:
                 message = "ERROR, Create running Exploit table  {}".format(self.exploit_running_loading_table)
                 if self.verbose:
                     self.verbose.log(datetime.now(tz=timezone.utc), "EXPLOIT", "ERROR", log_message=message)
-                raise(Exception(message))
+                raise Exception(message)
         else:
             self.exploit_running_loading_table = optional_args[EXPLOIT_ARG_LOADING_TABLE]
             message = "Using running Exploit table  {}".format(self.exploit_running_loading_table)
@@ -499,21 +499,26 @@ class BronzeSourceBuilder:
         return res
 
     def __custom_select_from_source__(self):
+        # create select request from source
+        # if need to encode columns, cast columns on select request
         if self.source_db:
             full_table_name = self.source_db.get_full_table_name(self.src_schema,self.src_table)
             if not self.force_encode:
                 self.request = "select * from " + full_table_name
             else:
                 if not self.source_db_connection:
-                    raise
-                self.request = self.source_db.create_select_encode_from_table(full_table_name, self.force_encode)
-            self.request += " " + self.where
+                    raise Exception("Error no DB connection")
+                (could_custom_select,custom_select_result) = self.source_db.create_select_encode_from_table(full_table_name, self.force_encode)
+            if could_custom_select:
+                self.request = custom_select_result + " " + self.where
+            else:
+                raise Exception(custom_select_result)
 
     def __sync_bronze_table__(self,verbose=None):
         table = self.bronze_table
         try:
             if not self.bronze_db_connection:
-                raise
+                raise Exception("Error no DB connection")
             cursor = self.bronze_db_connection.cursor()
 
             request = 'BEGIN DBMS_CLOUD.SYNC_EXTERNAL_PART_TABLE(table_name =>\'' + table + '\'); END;'
@@ -543,7 +548,7 @@ class BronzeSourceBuilder:
         vTable = self.bronze_table
         try:
             if not self.bronze_db_connection:
-                raise
+                raise Exception("Error no DB connection")
             cursor = self.bronze_db_connection.cursor()
             # Dropping table before recreating
             #drop = 'BEGIN EXECUTE IMMEDIATE \'DROP TABLE ' + vTable + '\'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;'
