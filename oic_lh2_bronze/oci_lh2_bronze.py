@@ -4,10 +4,10 @@ import os.path
 
 import pandas as pd
 
-from NLSOCI.oci_bucket import *
-from NLSTOOLS.config_settings import *
-from NLSTOOLS.tool_kits import *
-from NLSDB.dbwrapper_factory import *
+from nlsoci.oci_bucket import *
+from nlstools.config_settings import *
+from nlstools.tool_kits import *
+from nlsdb.dbwrapper_factory import *
 
 EXPLOIT_ARG_LOADING_TABLE = 'l'
 EXPLOIT_ARG_LOG_TABLE = 'o'

@@ -1,15 +1,15 @@
 import pandas as pd
 import oci
-from NLSDATA.oic_lh2_bronze.oci_lh2_bronze_file import BronzeSourceBuilderFile
-from NLSOCI.oci_bucket import OCIBucket, OCIEnv
-from NLSDATA.oic_lh2_bronze.oci_lh2_bronze import BronzeConfig, BronzeLogger, BronzeSourceBuilder
-from NLSOCI import *
+from nlsdata.oic_lh2_bronze.oci_lh2_bronze_file import BronzeSourceBuilderFile
+from nlsoci.oci_bucket import OCIBucket, OCIEnv
+from nlsdata.oic_lh2_bronze.oci_lh2_bronze import BronzeConfig, BronzeLogger, BronzeSourceBuilder
+from nlsoci import *
 from datetime import datetime, timezone
 import io
-from NLSOCI.utils import (recover_files_from_bucket, decompress_all_files)
+from nlsoci.utils import (recover_files_from_bucket, decompress_all_files)
 import os
-from NLSOCI.oci_bucket import OCI_ReportUsage_Bucket
-from NLSTOOLS.tool_kits import *
+from nlsoci.oci_bucket import OCI_ReportUsage_Bucket
+from nlstools.tool_kits import *
 import openpyxl
 
 
@@ -26,13 +26,16 @@ class BronzeSourceBuilderFileEXCEL(BronzeSourceBuilderFile):
         This method reads Excel and Turkey files.
         """
         # Determine file type based on source name
+        _file = fileargs[0]
+        # Defining the sheet_name as the second argument (src_table)
+        _wrksheet = fileargs[1]
         match self.src_name:
             case "TURKEY":
                 # Read Excel file with skipping the first row
-                table = pd.read_excel(self.src_schema, sheet_name=self.src_table, skiprows=1)
+                table = pd.read_excel(_file, sheet_name=_wrksheet, skiprows=1)
             case "EXCEL":
                 # Read Excel file without skipping rows
-                table = pd.read_excel(self.src_schema, sheet_name=self.src_table, skiprows=0)
+                table = pd.read_excel(_file, sheet_name=_wrksheet, skiprows=0)
             case _:
                 return False
         return table

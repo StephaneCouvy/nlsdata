@@ -1,9 +1,9 @@
 import pandas as pd
 import oci
 from oci_lh2_bronze_file import BronzeSourceBuilderFile
-from NLSOCI.oci_bucket import OCIBucket, OCIEnv
-from NLSDATA.oic_lh2_bronze.oci_lh2_bronze import BronzeConfig, BronzeLogger, BronzeSourceBuilder
-from NLSOCI import *
+from nlsoci.oci_bucket import OCIBucket, OCIEnv
+from nlsdata.oic_lh2_bronze.oci_lh2_bronze import BronzeConfig, BronzeLogger, BronzeSourceBuilder
+from nlsoci import *
 from datetime import datetime, timezone
 
 class BronzeSourceBuilderFileFromBucket(BronzeSourceBuilderFile):

@@ -1,5 +1,7 @@
-import pandas as pd
-from NLSDATA.oic_lh2_bronze.oci_lh2_bronze import *
+import pandas as ps
+from nlsdata.oic_lh2_bronze.oci_lh2_bronze import *
+import glob
+
 
 # Define a class BronzeSourceBuilderFile inheriting from BronzeSourceBuilder
 class BronzeSourceBuilderFile(BronzeSourceBuilder):
@@ -15,20 +17,6 @@ class BronzeSourceBuilderFile(BronzeSourceBuilder):
         self.parquet_file_id = self.__get_last_parquet_idx_in_bucket__()
 
 
-    def extract_prefix(self, string):
-        """
-        This method extracts the prefix from a string separated by slashes ("/").
-        """
-        # Split the string into parts using "/" as a separator
-        parts = string.split('/')
-
-        # Check if there is more than one part (i.e., if there is at least one slash)
-        if len(parts) > 1:
-            # Join all parts of the string except the last one using "/" and add a trailing slash
-            return '/'.join(parts[:-1]) + '/'
-        else:
-            # If there is only one part (no slashes), return an empty string
-            return ''
 
 
     # Method to fetch data from the source
@@ -41,16 +29,18 @@ class BronzeSourceBuilderFile(BronzeSourceBuilder):
                 # Log start of fetching
                 message = "Extracting data from file {0}, {1}, {2}".format(self.src_name, self.src_schema, self.src_table)
                 verbose.log(datetime.now(tz=timezone.utc), "FETCH", "START", log_message=message)
-                directory = self.extract_prefix(self.src_schema)
-                for file in os.listdir(directory):
-                    # Call method to import file
-                    table = self.__import_file__()
-                    # Store table content as string types
-                    self.df_table_content = table.astype('string')
-                    # Create Parquet file
-                    self.__create_parquet_file__()
-                    # Update fetch row statistics
-                    self.__update_fetch_row_stats__()
+            # Use glob.glob() to retrieve all files in the directory
+            all_files = glob.glob(self.src_schema)
+            # Iterate through each file in the list of all_files
+            for file in all_files:
+                # Call method to import file
+                table = self.__import_file__(file,self.src_table)
+                # Store table content as string types
+                self.df_table_content = table.astype('string')
+                # Create Parquet file
+                self.__create_parquet_file__()
+                # Update fetch row statistics
+                self.__update_fetch_row_stats__()
             return True
         except Exception as err:
             # Log error if fetching fails
@@ -65,3 +55,4 @@ class BronzeSourceBuilderFile(BronzeSourceBuilder):
     # Method to import file (to be implemented)
     def __import_file__(self, *fileargs):
         pass
+

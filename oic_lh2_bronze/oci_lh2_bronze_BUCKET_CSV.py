@@ -1,7 +1,7 @@
 import pandas as pd
-from NLSDATA.oic_lh2_bronze.oci_lh2_bronze import *
-from NLSDATA.oic_lh2_bronze.oci_lh2_bronze_CSV import BronzeSourceBuilderFileCSV
-from NLSOCI.utils import recover_files_from_bucket
+from nlsdata.oic_lh2_bronze.oci_lh2_bronze import *
+from nlsdata.oic_lh2_bronze.oci_lh2_bronze_CSV import BronzeSourceBuilderFileCSV
+from nlsoci.utils import recover_files_from_bucket
 
 # Define a class BronzeSourceBuilderBucketCSV inheriting from BronzeSourceBuilderFileCSV
 class BronzeSourceBuilderBucketCSV(BronzeSourceBuilderFileCSV):
