@@ -504,15 +504,15 @@ class BronzeSourceBuilder:
         if self.source_db:
             full_table_name = self.source_db.get_full_table_name(self.src_schema,self.src_table)
             if not self.force_encode:
-                self.request = "select * from " + full_table_name
+                self.request = "select * from " + full_table_name 
             else:
                 if not self.source_db_connection:
                     raise Exception("Error no DB connection")
                 (could_custom_select,custom_select_result) = self.source_db.create_select_encode_from_table(full_table_name, self.force_encode)
-            if could_custom_select:
-                self.request = custom_select_result + " " + self.where
-            else:
-                raise Exception(custom_select_result)
+                if could_custom_select:
+                    self.request = custom_select_result
+                else:
+                    raise Exception(custom_select_result)
 
     def __sync_bronze_table__(self,verbose=None):
         table = self.bronze_table
