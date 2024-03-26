@@ -513,6 +513,7 @@ class BronzeSourceBuilder:
                     self.request = custom_select_result
                 else:
                     raise Exception(custom_select_result)
+            self.request = self.request + " " + self.where 
 
     def __sync_bronze_table__(self,verbose=None):
         table = self.bronze_table
