@@ -272,6 +272,9 @@ class BronzeLogger():
         if error:
             error_type = type(error).__name__
             error_message = str(error)
+            # if error message contains warning then change action -> WARNING
+            if re.match("WARNING",error_message.upper()):
+                action = "WARNING"
         else:
             error_type = ''
             error_message = ''
