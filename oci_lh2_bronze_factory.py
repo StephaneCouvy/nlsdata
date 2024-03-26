@@ -1,9 +1,9 @@
 from inspect import getmembers, isclass, isabstract, ismodule
-from nlsdata.oic_lh2_bronze import *
-import nlsdata.oic_lh2_bronze
+from nlsdata.oci_lh2_bronze import *
+import nlsdata.oci_lh2_bronze
 from nlstools.tool_kits import *
 
-PACKAGE = nlsdata.oic_lh2_bronze
+PACKAGE = nlsdata.oci_lh2_bronze
 ABSTRACTCLASS = oci_lh2_bronze.BronzeSourceBuilder
 
 class NLSDataBronzeFactory():
