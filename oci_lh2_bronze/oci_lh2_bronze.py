@@ -272,6 +272,9 @@ class BronzeLogger():
         if error:
             error_type = type(error).__name__
             error_message = str(error)
+            # if error message contains warning then change action -> WARNING
+            if re.match("WARNING",error_message.upper()):
+                action = "WARNING"
         else:
             error_type = ''
             error_message = ''
@@ -513,6 +516,7 @@ class BronzeSourceBuilder:
                     self.request = custom_select_result
                 else:
                     raise Exception(custom_select_result)
+            self.request = self.request + " " + self.where 
 
     def __sync_bronze_table__(self,verbose=None):
         table = self.bronze_table
