@@ -224,6 +224,9 @@ class BronzeExploit:
             self.logger.log(error=err, action=vError)
             return False
 
+    def __str__(self):
+        return f"BronzeExploit: exploit_running_loading_table={self.exploit_running_loading_table}, df_param={self.df_param}"
+
 class BronzeLogger():
     def __init__(self, bronze_config,verbose=None):
         self.bronze_source = None
@@ -733,7 +736,7 @@ class BronzeGenerator:
             generate_result = False
             # 1 Fetch data from source
             self.__bronzesourcebuilder__.pre_fetch_source()
-            if not self.__bronzesourcebuilder__.fetch_source(verbose):
+            if not self.__bronzesourcebuilder__.fetch_soure(verbose):
                 break
 
             # 2 Upload parquets files to bucket
