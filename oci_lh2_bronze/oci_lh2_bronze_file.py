@@ -1,5 +1,5 @@
 import pandas as ps
-from nlsdata.oic_lh2_bronze.oci_lh2_bronze import *
+from nlsdata.oci_lh2_bronze.oci_lh2_bronze import *
 import glob
 
 
@@ -9,6 +9,12 @@ class BronzeSourceBuilderFile(BronzeSourceBuilder):
                  src_date_where, src_date_lastupdate, force_encode, logger):
         super().__init__(br_config, "FILE", src_name, src_origin_name, src_table_name, src_table_where,
                          src_flag_incr, src_date_where, src_date_lastupdate, force_encode, logger)
+        # convert src_table_where into dictionary to be used into pandas read file
+        if self.src_object_constraint:
+            self.file_read_options = string_to_dictionary(self.src_object_constraint)
+        else:
+            self.file_read_options = {}
+            
         # Construct the bronze table name based on source name and table
         self.bronze_table = self.src_name + "_" + self.src_table.replace(" ", "_")
         # Define the path for storing files in the bucket
@@ -20,7 +26,7 @@ class BronzeSourceBuilderFile(BronzeSourceBuilder):
     # Method to fetch data from the source
     def fetch_source(self, verbose=None):
         """
-        This method reads CSV or Excel/Turkey files, transforms them into Parquet files, and updates statistics.
+        This method reads files, transforms them into Parquet files, and updates statistics.
         """
         try:
             if verbose:
@@ -32,14 +38,14 @@ class BronzeSourceBuilderFile(BronzeSourceBuilder):
             # Iterate through each file in the list of all_files
             for file in all_files:
                 #check if file exists
-                if not os.path.exists(_file):
+                if not os.path.exists(file):
                     raise FileNotFoundError("The path is not valid or the file does not exist")
        
                 # Call method to import file
-                table = self.__import_file__(file,self.src_table)
+                _df = self.__import_file__(file,self.src_table,**self.file_read_options)
 
                 # Store table content as string types
-                self.df_table_content = table.astype('string')
+                self.df_table_content = _df.astype('string')
 
                 # Create Parquet file
                 self.__create_parquet_file__()

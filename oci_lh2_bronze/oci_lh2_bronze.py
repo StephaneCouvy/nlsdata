@@ -78,6 +78,8 @@ class BronzeConfig():
             self.verboselogfile = os.path.join(self.get_tempdir(),self.get_options().verboselogfile)
         else:
             self.verboselogfile = self.get_options().verboselogfile
+        
+        self.verboselevel = self.get_options().verbose_level
 
     def get_configuration_file(self):
         return self.configuration_file
@@ -100,7 +102,8 @@ class BronzeConfig():
         return self.tempdir
     def get_verboselogfile(self):
         return self.verboselogfile
-
+    def get_verboselevel(self):
+        return self.verboselevel
 class BronzeExploit:
     # Iterator object for list of sources to be imported into Bronze
     # Define metohd to update src_dat_lastupdate for table with incremental integration
@@ -736,7 +739,7 @@ class BronzeGenerator:
             generate_result = False
             # 1 Fetch data from source
             self.__bronzesourcebuilder__.pre_fetch_source()
-            if not self.__bronzesourcebuilder__.fetch_soure(verbose):
+            if not self.__bronzesourcebuilder__.fetch_source(verbose):
                 break
 
             # 2 Upload parquets files to bucket
