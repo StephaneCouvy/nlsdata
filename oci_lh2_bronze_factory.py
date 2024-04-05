@@ -10,11 +10,11 @@ class NLSDataBronzeFactory():
   lh2_bronze_wrappers = {}
 
   def __init__(self,mapping_class=None):
-    self.load_db_wrappers()
+    self.load_bronze_wrappers()
     if mapping_class:
       self.lh2_bronze_wrappers = { k:self.lh2_bronze_wrappers[mapping_class[k]] for k in mapping_class.keys()}
 
-  def load_db_wrappers(self):
+  def load_bronze_wrappers(self):
     modules = [(name,obj) for name,obj in getmembers(PACKAGE,lambda m: ismodule(m))]
     for module in modules:
       classes = getmembers(module[1], lambda m: isclass(m) and not isabstract(m))

@@ -4,10 +4,10 @@ import os.path
 
 import pandas as pd
 
-from nlsoci.oci_bucket import *
 from nlstools.config_settings import *
 from nlstools.tool_kits import *
 from nlsdb.dbwrapper_factory import *
+from nlsbucket.bucketwrapper_factory import *
 
 EXPLOIT_ARG_LOADING_TABLE = 'l'
 EXPLOIT_ARG_LOG_TABLE = 'o'
@@ -23,6 +23,7 @@ SQL_READMODE = "DBCURSOR" #CURSORDB / PANDAS
 PARQUET_FILE_EXTENSION = ".parquet"
 
 DBFACTORY = NLSDbFactory()
+BUCKETFACTORY = NLSBucketFactory()
 
 class BronzeConfig():
     #Define configuration envrionment parameters to execute.
@@ -32,10 +33,10 @@ class BronzeConfig():
     def __init__(self,configuration_file):
         self.configuration_file = path_replace_tilde_with_home(configuration_file)
         self.options = get_parser_config_settings("options")(self.configuration_file,"options")
-        #self.oracledb_settings = get_parser_config_settings("oracledb_settings")(self.configuration_file,"oracledb_settings")
+        
         self.duckdb_settings = get_parser_config_settings("duckdb_settings")(self.configuration_file,"duckdb_settings")
-        self.oci_settings = get_parser_config_settings("oci")(self.configuration_file,"oci")
-        #self.odbcdb_settings = get_parser_config_settings("odbcdb_settings")(self.configuration_file,"odbcdb_settings")
+        
+        self.oci_settings = get_parser_config_settings("bucket")(self.configuration_file,"oci")
 
         #if full path is not specified for OCI config file, then set same folder than configuration file
         if not os.path.dirname(self.oci_settings.config_path):
@@ -437,7 +438,7 @@ class BronzeSourceBuilder:
             # define your OCI config
             oci_config_path = self.bronze_config.get_oci_settings().config_path
             oci_config_profile = self.bronze_config.get_oci_settings().profile
-            bucket = OCIBucket(self.bucketname, file_location=oci_config_path, oci_profile=oci_config_profile)
+            bucket = BUCKETFACTORY.create_instance("OciBucketWrapper",self.bucketname, file_location=oci_config_path, oci_profile=oci_config_profile)
 
             what_to_search = self.bucket_file_path+self.parquet_file_name_template
             list_buckets_files = [obj.name for obj in bucket.list_objects(what_to_search)]
@@ -671,7 +672,7 @@ class BronzeSourceBuilder:
             self.parquet_file_list_tosend = self.parquet_file_list
 
         try:
-            bucket = OCIBucket(self.bucketname, forcecreate=True,compartment_id=oci_compartment_id,file_location=oci_config_path, oci_profile=oci_config_profile)
+            bucket = BUCKETFACTORY.create_instance("OciBucketWrapper",self.bucketname, forcecreate=True,compartment_id=oci_compartment_id,file_location=oci_config_path, oci_profile=oci_config_profile)
             for p in self.parquet_file_list_tosend:
                 # Sending parquet files
                     bucket_file_name = self.bucket_file_path +  p["file_name"]
