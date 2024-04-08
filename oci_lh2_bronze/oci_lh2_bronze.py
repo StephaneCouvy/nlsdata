@@ -7,7 +7,7 @@ import pandas as pd
 from nlstools.config_settings import *
 from nlstools.tool_kits import *
 from nlsdb.dbwrapper_factory import *
-from nlsbucket.bucketwrapper_factory import *
+from nlsfilestorage.filestorage_wrapper_factory import *
 
 EXPLOIT_ARG_LOADING_TABLE = 'l'
 EXPLOIT_ARG_LOG_TABLE = 'o'
@@ -23,7 +23,7 @@ SQL_READMODE = "DBCURSOR" #CURSORDB / PANDAS
 PARQUET_FILE_EXTENSION = ".parquet"
 
 DBFACTORY = NLSDbFactory()
-BUCKETFACTORY = NLSBucketFactory()
+FILESTORAGEFACTORY = NLSFileStorageFactory()
 
 class BronzeConfig():
     #Define configuration envrionment parameters to execute.
@@ -438,7 +438,7 @@ class BronzeSourceBuilder:
             # define your OCI config
             oci_config_path = self.bronze_config.get_oci_settings().config_path
             oci_config_profile = self.bronze_config.get_oci_settings().profile
-            bucket = BUCKETFACTORY.create_instance("OciBucketWrapper",self.bucketname, file_location=oci_config_path, oci_profile=oci_config_profile)
+            bucket = FILESTORAGEFACTORY.create_instance("OciBucketWrapper",self.bucketname, file_location=oci_config_path, oci_profile=oci_config_profile)
 
             what_to_search = self.bucket_file_path+self.parquet_file_name_template
             list_buckets_files = [obj.name for obj in bucket.list_objects(what_to_search)]
@@ -672,7 +672,7 @@ class BronzeSourceBuilder:
             self.parquet_file_list_tosend = self.parquet_file_list
 
         try:
-            bucket = BUCKETFACTORY.create_instance("OciBucketWrapper",self.bucketname, forcecreate=True,compartment_id=oci_compartment_id,file_location=oci_config_path, oci_profile=oci_config_profile)
+            bucket = FILESTORAGEFACTORY.create_instance("OciBucketWrapper",self.bucketname, forcecreate=True,compartment_id=oci_compartment_id,file_location=oci_config_path, oci_profile=oci_config_profile)
             for p in self.parquet_file_list_tosend:
                 # Sending parquet files
                     bucket_file_name = self.bucket_file_path +  p["file_name"]
