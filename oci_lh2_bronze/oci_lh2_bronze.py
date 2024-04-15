@@ -25,6 +25,10 @@ PARQUET_FILE_EXTENSION = ".parquet"
 DBFACTORY = NLSDbFactory()
 FILESTORAGEFACTORY = NLSFileStorageFactory()
 
+SourceProperties = namedtuple('SourceProperties',['type','name','schema','table','request','incremental','lastupdate'])
+BronzeProperties = namedtuple('BronzeProperties',['environment','schema','table','bucket','bucket_filepath','parquet_template'])
+OciProperties = namedtuple('OciProperties',["filestorage_wrapper","namespace","profile","config_path","compartment_id","bucket_prefix_name","bucket_debug"])
+
 class BronzeConfig():
     #Define configuration envrionment parameters to execute.
     #Mainly extract parameters from json configuration_file
@@ -36,8 +40,9 @@ class BronzeConfig():
         
         self.duckdb_settings = get_parser_config_settings("duckdb_settings")(self.configuration_file,"duckdb_settings")
         
-        self.oci_settings = get_parser_config_settings("bucket")(self.configuration_file,"oci")
-
+        bronze_bucket_settings = get_parser_config_settings("filestorage")(self.configuration_file,"bronze_bucket")
+        self.oci_settings = OciProperties(filestorage_wrapper=bronze_bucket_settings.filestorage_wrapper,namespace=bronze_bucket_settings.url,profile=bronze_bucket_settings.profile,config_path=bronze_bucket_settings.config_file,compartment_id=bronze_bucket_settings.container,bucket_prefix_name=bronze_bucket_settings.storage_name,bucket_debug=self.get_options().bucket_debug)
+        
         #if full path is not specified for OCI config file, then set same folder than configuration file
         if not os.path.dirname(self.oci_settings.config_path):
             vOci_config_path = os.path.join(os.path.dirname(self.configuration_file),self.oci_settings.config_path)
@@ -57,10 +62,6 @@ class BronzeConfig():
             self.debug = True
         else:
             self.debug = False
-
-        #Init Oracledb envrionment - only once
-        #db_oracle = DBFACTORY.create_instance("OracleDbWrapper",self.configuration_file)
-        #db_oracle.set_db_settings(self.oracledb_settings)
 
         if self.options.rootdir != '':
             self.rootdir = path_replace_tilde_with_home(self.options.rootdir)
@@ -301,9 +302,6 @@ class BronzeLogger():
     def __insertlog__(self):
         self.db.insert_namedtuple_into_table(self.instance_bronzeloggerproperties,self.table_name)
 
-SourceProperties = namedtuple('SourceProperties',['type','name','schema','table','request','incremental','lastupdate'])
-BronzeProperties = namedtuple('BronzeProperties',['environment','schema','table','bucket','bucket_filepath','parquet_template'])
-
 class BronzeSourceBuilder:
     # ENV : environement DEV, STG, PRD
     # config_file : dictionary json config file with connection parameters
@@ -315,8 +313,8 @@ class BronzeSourceBuilder:
     # SRC_date_where : clause where to filter on records date, might depend on table
     # SRC_date_lastupdate : update last timestamp for data integration
     # FORCE_ENCODE : if UnicodeError during fetch, custom select by converting column of type VARCHAR to a specific CHARSET
-    def __init__(self, br_config, src_type, src_name, src_origin_name, src_table_name, src_table_where,
-                 src_flag_incr, src_date_criteria, src_date_lastupdate,force_encode,logger):
+    def __init__(self, br_config:BronzeConfig, src_type, src_name, src_origin_name, src_table_name, src_table_where,
+                 src_flag_incr, src_date_criteria, src_date_lastupdate,force_encode,logger:BronzeLogger):
         self.bronze_config = br_config
         self.env = self.bronze_config.get_options().environment
         self.src_type = src_type
@@ -365,7 +363,7 @@ class BronzeSourceBuilder:
 
         # Define bucket name
         if not self.debug:
-            self.bucketname = self.bronze_config.get_oci_settings().bucket_prefix_name + "-" + self.env + "-" + self.src_name
+            self.bucketname = self.bronze_config.get_oci_settings().bucket_name + "-" + self.env + "-" + self.src_name
         else:
             self.bucketname = self.bronze_config.get_oci_settings().bucket_debug
 
@@ -438,7 +436,7 @@ class BronzeSourceBuilder:
             # define your OCI config
             oci_config_path = self.bronze_config.get_oci_settings().config_path
             oci_config_profile = self.bronze_config.get_oci_settings().profile
-            bucket = FILESTORAGEFACTORY.create_instance("OciBucketWrapper",self.bucketname, file_location=oci_config_path, oci_profile=oci_config_profile)
+            bucket = FILESTORAGEFACTORY.create_instance(self.bronze_config.get_oci_settings().filestorage_wrapper,self.bucketname, file_location=oci_config_path, oci_profile=oci_config_profile)
 
             what_to_search = self.bucket_file_path+self.parquet_file_name_template
             list_buckets_files = [obj.name for obj in bucket.list_objects(what_to_search)]
@@ -453,6 +451,10 @@ class BronzeSourceBuilder:
             idx = 0
         return idx
 
+    def _set_bronze_table_settings(self):
+        #define bronze table name, bucket path to add parquet files, get index to restart parquet files interation
+        pass
+    
     def __clean_temporary_parquet_files__(self):
         # clean temporay local parquet files (some could remain from previous failure process
         merged_parquet_file_name = self.parquet_file_name_template + PARQUET_FILE_EXTENSION
@@ -672,7 +674,15 @@ class BronzeSourceBuilder:
             self.parquet_file_list_tosend = self.parquet_file_list
 
         try:
-            bucket = FILESTORAGEFACTORY.create_instance("OciBucketWrapper",self.bucketname, forcecreate=True,compartment_id=oci_compartment_id,file_location=oci_config_path, oci_profile=oci_config_profile)
+            bucket = FILESTORAGEFACTORY.create_instance(self.bronze_config.get_oci_settings().filestorage_wrapper,self.bucketname, forcecreate=True,compartment_id=oci_compartment_id,file_location=oci_config_path, oci_profile=oci_config_profile)
+        except Exception as err:
+            self.__update_sent_parquets_stats()
+            vError = "ERROR create access to bucket {0}".format(self.bucketname)
+            if verbose:
+                verbose.log(datetime.now(tz=timezone.utc), "BUCKET_ACCESS", vError, log_message=str(err))
+            self.logger.log(error=err, action=vError)
+            return False
+        try:    
             for p in self.parquet_file_list_tosend:
                 # Sending parquet files
                     bucket_file_name = self.bucket_file_path +  p["file_name"]
@@ -719,14 +729,14 @@ class BronzeSourceBuilder:
             return False
 
     def pre_fetch_source(self):
-        # TO BE EXECUTE subclass fetch method
-        # Request data from source
-        # and generate local parquet files
+        # TO BE EXECUTED before fetch method
         self.fetch_start = datetime.now()
         #delete old temporary parquet files
         self.__clean_temporary_parquet_files__()
 
     def fetch_source(self,verbose=None):
+        # Request data from source
+        # and generate local parquet files
         pass
 
 class BronzeGenerator:
