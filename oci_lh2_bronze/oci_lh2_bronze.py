@@ -40,16 +40,14 @@ class BronzeConfig():
         
         self.duckdb_settings = get_parser_config_settings("duckdb_settings")(self.configuration_file,"duckdb_settings")
         
-        bronze_bucket_settings = get_parser_config_settings("filestorage")(self.configuration_file,"bronze_bucket")
-        self.oci_settings = OciProperties(filestorage_wrapper=bronze_bucket_settings.filestorage_wrapper,namespace=bronze_bucket_settings.url,profile=bronze_bucket_settings.profile,config_path=bronze_bucket_settings.config_file,compartment_id=bronze_bucket_settings.container,bucket_prefix_name=bronze_bucket_settings.storage_name,bucket_debug=self.get_options().bucket_debug)
-        
+        """
         #if full path is not specified for OCI config file, then set same folder than configuration file
         if not os.path.dirname(self.oci_settings.config_path):
             vOci_config_path = os.path.join(os.path.dirname(self.configuration_file),self.oci_settings.config_path)
         else:
             vOci_config_path = path_replace_tilde_with_home(self.oci_settings.config_path)
         self.oci_settings = self.oci_settings._replace(config_path=vOci_config_path)
-
+        """
         if self.options.db_arraysize.isdigit():
             global DB_ARRAYSIZE
             DB_ARRAYSIZE = eval(self.options.db_arraysize)
@@ -60,8 +58,10 @@ class BronzeConfig():
 
         if self.options.environment == "DEBUG":
             self.debug = True
+            self.oci_settings = get_parser_config_settings("filestorage")(self.configuration_file,"BRONZE_BUCKET_DEBUG")
         else:
             self.debug = False
+            self.oci_settings = get_parser_config_settings("filestorage")(self.configuration_file,"BRONZE_BUCKET")
 
         if self.options.rootdir != '':
             self.rootdir = path_replace_tilde_with_home(self.options.rootdir)
@@ -94,7 +94,10 @@ class BronzeConfig():
 
     def get_oci_settings(self):
         return self.oci_settings
-
+    
+    def set_oci_setings_bucketname(self,bucketname):
+        self.oci_settings = self.oci_settings._replace(storage_name=bucketname)
+        
     def isdebugmode(self):
         return self.debug
 
@@ -330,8 +333,6 @@ class BronzeSourceBuilder:
         # Create "tmp" folder to save parquet files
         self.__set_local_workgingdir__(self.bronze_config.get_tempdir())
 
-        self.parquet_file_name_template = self.src_name + "_" + self.src_table.replace(" ", "_")
-        self.parquet_file_id = 0
         self.df_table_content = pd.DataFrame()
         # list of parquet file generated
         self.parquet_file_list = []  # format list : [{"file_name":parquet_file_name1,"source_file":source_file1},{"file_name":parquet_file_name2,"source_file":source_file2},...]
@@ -363,10 +364,12 @@ class BronzeSourceBuilder:
 
         # Define bucket name
         if not self.debug:
-            self.bucketname = self.bronze_config.get_oci_settings().bucket_name + "-" + self.env + "-" + self.src_name
-        else:
-            self.bucketname = self.bronze_config.get_oci_settings().bucket_debug
-
+            self.bucketname = self.bronze_config.get_oci_settings().storage_name + "-" + self.env + "-" + self.src_name
+            self.bronze_config.set_oci_setings_bucketname(self.bronze_config.get_oci_settings().storage_name + "-" + self.env + "-" + self.src_name)
+        self.bucketname = self.bronze_config.get_oci_settings().storage_name
+        self.oci_objectstorage_url = self.bronze_config.get_oci_settings().url
+        self.oci_adw_credential = self.env + '_CRED_NAME'
+         
         # To be set into subclass
         self.source_db = None
         self.source_db_connection = None
@@ -385,6 +388,8 @@ class BronzeSourceBuilder:
             self.db_execute_bind = [self.src_date_lastupdate]
         self.request = ""
 
+        self._set_bronze_table_settings()
+        
         # setup logger to log events errors and success into LOG_ table
         self.logger = logger
         self.logger.link_to_bronze_source(self)
@@ -433,11 +438,13 @@ class BronzeSourceBuilder:
         # to avoid remplace existing parquet files
         idx = 0
         try:
+            """ 
             # define your OCI config
             oci_config_path = self.bronze_config.get_oci_settings().config_path
             oci_config_profile = self.bronze_config.get_oci_settings().profile
             bucket = FILESTORAGEFACTORY.create_instance(self.bronze_config.get_oci_settings().filestorage_wrapper,self.bucketname, file_location=oci_config_path, oci_profile=oci_config_profile)
-
+            """
+            bucket = FILESTORAGEFACTORY.create_instance(self.bronze_config.get_oci_settings().filestorage_wrapper,**self.bronze_config.get_oci_settings()._asdict())
             what_to_search = self.bucket_file_path+self.parquet_file_name_template
             list_buckets_files = [obj.name for obj in bucket.list_objects(what_to_search)]
             if list_buckets_files:
@@ -575,14 +582,14 @@ class BronzeSourceBuilder:
             if self.src_flag_incr:
                 # Create external part table parsing parquet files from bucket root (for incremental mode)
                 root_path = self.bucket_file_path.split("/")[0]+"/"
-                create = 'BEGIN DBMS_CLOUD.CREATE_EXTERNAL_PART_TABLE(table_name =>\'' + vTable + '\',credential_name =>\'' + self.env + '_CRED_NAME\', file_uri_list =>\'https://objectstorage.eu-frankfurt-1.oraclecloud.com/n/frysfb5gvbrr/b/' + self.bucketname + '/o/'+root_path+'*' + self.parquet_file_name_template + '*.parquet\', format => \'{"type":"parquet", "schema": "first","partition_columns":[{"name":"fetch_year","type":"varchar2(100)"},{"name":"fetch_month","type":"varchar2(100)"},{"name":"fetch_day","type":"varchar2(100)"}]}\'); END;'
+                create = 'BEGIN DBMS_CLOUD.CREATE_EXTERNAL_PART_TABLE(table_name =>\'' + vTable + '\',credential_name =>\'' + self.oci_adw_credential + '\', file_uri_list =>\'' + self.oci_objectstorage_url + self.bucketname + '/o/'+root_path+'*' + self.parquet_file_name_template + '*.parquet\', format => \'{"type":"parquet", "schema": "first","partition_columns":[{"name":"fetch_year","type":"varchar2(100)"},{"name":"fetch_month","type":"varchar2(100)"},{"name":"fetch_day","type":"varchar2(100)"}]}\'); END;'
                 # create += 'EXECUTE IMMEDIATE '+ '\'CREATE INDEX fetch_date ON ' + table + '(fetch_year,fetch_month,fetch_date)\'; END;'
                 # not supported for external table
             else:
                 # Create external table linked to ONE parquet file (for non incremental mode)
                 root_path = self.bucket_file_path
                 #create = 'BEGIN DBMS_CLOUD.CREATE_EXTERNAL_TABLE(table_name =>\'' + vTable + '\',credential_name =>\'' + self.env + '_CRED_NAME\', file_uri_list =>\'https://objectstorage.eu-frankfurt-1.oraclecloud.com/n/frysfb5gvbrr/b/' + self.bucketname + '/o/'+root_path+ self.parquet_file_name_template + '.parquet\', format => \'{"type":"parquet", "schema": "first"}\'); END;'
-                create = 'BEGIN DBMS_CLOUD.CREATE_EXTERNAL_TABLE(table_name =>\'' + vTable + '\',credential_name =>\'' + self.env + '_CRED_NAME\', file_uri_list =>\'https://frysfb5gvbrr.objectstorage.eu-frankfurt-1.oci.customer-oci.com/n/frysfb5gvbrr/b/' + self.bucketname + '/o/' + root_path + self.parquet_file_name_template + '.parquet\', format => \'{"type":"parquet", "schema": "first"}\'); END;'
+                create = 'BEGIN DBMS_CLOUD.CREATE_EXTERNAL_TABLE(table_name =>\'' + vTable + '\',credential_name =>\'' + self.oci_adw_credential + '\', file_uri_list =>\'' + self.oci_objectstorage_url + self.bucketname + '/o/' + root_path + self.parquet_file_name_template + '.parquet\', format => \'{"type":"parquet", "schema": "first"}\'); END;'
             if verbose:
                 message = "Creating table {} : {}".format(vTable,create)
                 verbose.log(datetime.now(tz=timezone.utc), "CREATE_TABLE", "START", log_message=message)
@@ -644,11 +651,12 @@ class BronzeSourceBuilder:
     def send_parquet_files_to_oci(self,verbose=None):
         self.upload_parquets_start = datetime.now()
         self.__update_sent_parquets_stats()
+        """
         # define your OCI config
         oci_config_path = self.bronze_config.get_oci_settings().config_path
         oci_config_profile = self.bronze_config.get_oci_settings().profile
         oci_compartment_id = self.bronze_config.get_oci_settings().compartment_id
-
+        """
         if not self.parquet_file_list:
             vError = "WARNING, No parquet files to upload"
             if verbose:
@@ -674,7 +682,8 @@ class BronzeSourceBuilder:
             self.parquet_file_list_tosend = self.parquet_file_list
 
         try:
-            bucket = FILESTORAGEFACTORY.create_instance(self.bronze_config.get_oci_settings().filestorage_wrapper,self.bucketname, forcecreate=True,compartment_id=oci_compartment_id,file_location=oci_config_path, oci_profile=oci_config_profile)
+            #bucket = FILESTORAGEFACTORY.create_instance(self.bronze_config.get_oci_settings().filestorage_wrapper,self.bucketname, forcecreate=True,compartment_id=oci_compartment_id,file_location=oci_config_path, oci_profile=oci_config_profile)
+            bucket = FILESTORAGEFACTORY.create_instance(self.bronze_config.get_oci_settings().filestorage_wrapper,**self.bronze_config.get_oci_settings()._asdict())
         except Exception as err:
             self.__update_sent_parquets_stats()
             vError = "ERROR create access to bucket {0}".format(self.bucketname)
@@ -728,7 +737,7 @@ class BronzeSourceBuilder:
             self.logger.log(error=err, action=vError)
             return False
 
-    def pre_fetch_source(self):
+    def pre_fetch_source(self,verbose=None):
         # TO BE EXECUTED before fetch method
         self.fetch_start = datetime.now()
         #delete old temporary parquet files
@@ -749,7 +758,7 @@ class BronzeGenerator:
         while True:
             generate_result = False
             # 1 Fetch data from source
-            self.__bronzesourcebuilder__.pre_fetch_source()
+            self.__bronzesourcebuilder__.pre_fetch_source(verbose)
             if not self.__bronzesourcebuilder__.fetch_source(verbose):
                 break
 
