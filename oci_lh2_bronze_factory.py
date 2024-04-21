@@ -22,7 +22,7 @@ class NLSDataBronzeFactory():
         if isclass(_type) and issubclass(_type, ABSTRACTCLASS):
           self.lh2_bronze_wrappers.update([[name, _type]])
 
-  def create_instance(self, wrapper_name,*args,**kwargs):
+  def create_instance(self, wrapper_name,/,*args,**kwargs):
     if wrapper_name in self.lh2_bronze_wrappers:
       return self.lh2_bronze_wrappers[wrapper_name](*args,**kwargs)
     else:
