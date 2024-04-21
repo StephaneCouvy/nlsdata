@@ -6,9 +6,6 @@ class BronzeSourceBuilderDb(BronzeSourceBuilder):
                  src_date_where, src_date_lastupdate, force_encode,logger):
         super().__init__(br_config, "DB", src_name, src_origin_name, src_table_name, src_table_where,
                          src_flag_incr, src_date_where, src_date_lastupdate, force_encode,logger)
-        self.bronze_table = self.src_name + "_" + self.src_schema + "_" + self.src_table.replace(" ", "_")
-        self.bucket_file_path = self.src_schema + "/" + self.year + "/" + self.month + "/" + self.day + "/"
-        self.parquet_file_id = self.__get_last_parquet_idx_in_bucket__()
 
         # Create connexion to source database
         self.source_database_param = get_parser_config_settings("database")(self.bronze_config.get_configuration_file(),self.src_name)
@@ -21,6 +18,17 @@ class BronzeSourceBuilderDb(BronzeSourceBuilder):
         # Customize select to force encode of columns
         self.__custom_select_from_source__()
 
+    def _set_bronze_table_settings(self):
+        #define bronze table name, bucket path to add parquet files, get index to restart parquet files interation
+        self.bronze_table = self.src_name + "_" + self.src_schema + "_" + self.src_table.replace(" ", "_")
+        # define template name of parquet files
+        self.parquet_file_name_template = self.src_name + "_" + self.src_table.replace(" ", "_")
+        self.parquet_file_id = 0
+        # Define the path for storing parquets files in the bucket
+        self.bucket_file_path = self.src_schema + "/" + self.year + "/" + self.month + "/" + self.day + "/"
+        # Get the index of the last Parquet file in the bucket
+        self.parquet_file_id = self.__get_last_parquet_idx_in_bucket__()
+        
     def fetch_source(self,verbose=None):
         try:
             if not self.source_db_connection:
