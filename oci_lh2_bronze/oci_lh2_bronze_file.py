@@ -22,7 +22,12 @@ class BronzeSourceBuilderFile(BronzeSourceBuilder):
         self.source_filestorage_param = get_parser_config_settings("filestorage")(self.bronze_config.get_configuration_file(),self.src_name)
         self.source_filestorage = FILESTORAGEFACTORY.create_instance(self.source_filestorage_param.filestorage_wrapper,**self.source_filestorage_param._asdict())
 
-    def _set_bronze_table_settings(self):
+    def __init_bronze_bucket_settings__(self):
+        # store all parquet files into same bucket - Not depends on storage name
+         # Bucket name ends with '-FILES'
+        self.__set_bronze_bucket_settings__('FILES')
+        
+    def __set_bronze_table_settings__(self):
         #define bronze table name, bucket path to add parquet files, get index to restart parquet files interation
          # Construct the bronze table name based on source name and table
         self.bronze_table = self.src_type + "_" + self.src_table.replace(" ", "_")
