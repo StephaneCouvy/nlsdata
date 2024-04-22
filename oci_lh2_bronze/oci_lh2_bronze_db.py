@@ -18,7 +18,7 @@ class BronzeSourceBuilderDb(BronzeSourceBuilder):
         # Customize select to force encode of columns
         self.__custom_select_from_source__()
 
-    def _set_bronze_table_settings(self):
+    def __set_bronze_table_settings__(self):
         #define bronze table name, bucket path to add parquet files, get index to restart parquet files interation
         self.bronze_table = self.src_name + "_" + self.src_schema + "_" + self.src_table.replace(" ", "_")
         # define template name of parquet files
