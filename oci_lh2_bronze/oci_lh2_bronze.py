@@ -364,7 +364,6 @@ class BronzeSourceBuilder:
 
         # Define bucket name
         if not self.debug:
-            self.bucketname = self.bronze_config.get_oci_settings().storage_name + "-" + self.env + "-" + self.src_name
             self.bronze_config.set_oci_setings_bucketname(self.bronze_config.get_oci_settings().storage_name + "-" + self.env + "-" + self.src_name)
         self.bucketname = self.bronze_config.get_oci_settings().storage_name
         self.oci_objectstorage_url = self.bronze_config.get_oci_settings().url
