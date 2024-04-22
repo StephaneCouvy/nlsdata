@@ -448,7 +448,7 @@ class BronzeSourceBuilder:
         if not self.debug:
             self.bronze_bucket_settings=self.bronze_config.get_oci_settings()._replace(storage_name=self.bronze_config.get_oci_settings().storage_name + "-" + self.env + "-" + bucket_extension)
         else:
-            self.bronze_bucket_settings = type(self.bronze_config.get_oci_settings())._make(*self.bronze_config.get_oci_settings())
+            self.bronze_bucket_settings = type(self.bronze_config.get_oci_settings())._make(self.bronze_config.get_oci_settings())
         
         # Set information needed to create external tables into bucket
         self.bucketname = self.bronze_bucket_settings.storage_name
