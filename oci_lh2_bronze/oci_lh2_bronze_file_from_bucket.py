@@ -47,7 +47,7 @@ class BronzeSourceBuilderFileFromBucket(BronzeSourceBuilderFile):
                                                                                               self.src_table)
                     if verbose:
                         verbose.log(datetime.now(tz=timezone.utc), "FETCH", vError, log_message='')
-                    self.logger.log(error=Exception('Unkown source'), action=vError)
+                    self.logger.log(pError=Exception('Unkown source'), pAction=vError)
                     return False
 
                 self.df_table_content = table.astype('string')
@@ -62,7 +62,7 @@ class BronzeSourceBuilderFileFromBucket(BronzeSourceBuilderFile):
                                                                             self.src_table, str(err))
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "FETCH", vError, log_message=str(err))
-            self.logger.log(error=err, action=vError)
+            self.logger.log(pError=err, pAction=vError)
             self.__update_fetch_row_stats__()
             return False
 

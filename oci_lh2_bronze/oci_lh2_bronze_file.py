@@ -5,10 +5,10 @@ import glob
 
 # Define a class BronzeSourceBuilderFile inheriting from BronzeSourceBuilder
 class BronzeSourceBuilderFile(BronzeSourceBuilder):
-    def __init__(self, br_config, src_name, src_origin_name, src_table_name, src_table_where, src_flag_incr,
-                 src_date_where, src_date_lastupdate, force_encode, logger):
-        super().__init__(br_config, "FILE", src_name, src_origin_name, src_table_name, src_table_where,
-                         src_flag_incr, src_date_where, src_date_lastupdate, force_encode, logger)
+    def __init__(self, pBronze_Config:BronzeConfig, pBronzeDb_Manager:BronzeDbManager,pSrc_name, pSrc_origin_name, pSrc_table_name, pSrc_table_where, pSrc_flag_incr,
+                 pSrc_date_where, pSrc_date_lastupdate, pForce_encode, pLogger):
+        super().__init__(pBronze_Config, pBronzeDb_Manager, "FILE", pSrc_name, pSrc_origin_name, pSrc_table_name, pSrc_table_where,
+                         pSrc_flag_incr, pSrc_date_where, pSrc_date_lastupdate, pForce_encode, pLogger)
         
         # convert src_table_where into dictionary to be used into read file
         if self.src_object_constraint:
@@ -109,7 +109,7 @@ class BronzeSourceBuilderFile(BronzeSourceBuilder):
             vError = "Extracting error from {0}, file {1}, {2}: {3}".format(self.src_name, self.src_schema, self.src_table, str(err))
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "FETCH", vError, log_message=str(err),log_request=self.request)
-            self.logger.log(error=err, action=vError)
+            self.logger.log(pError=err, pAction=vError)
             self.__update_fetch_row_stats__()
             return False
 
