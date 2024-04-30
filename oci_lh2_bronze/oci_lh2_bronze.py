@@ -306,63 +306,65 @@ class BronzeDbManager:
     # object to manage connection to bronze database
     # provide main functions to manage Bronze DB activities
     def __init__(self, pBronze_Config:BronzeConfig,pLogger:BronzeLogger):
-        self.BronzeDb_Manager_Config = pBronze_Config
-        self.BronzeDbManager_Env = self.BronzeDb_Manager_Config.get_options().environment
-        self.BronzeDb_Manager_Schema = "BRONZE_" + self.BronzeDbManager_Env
-        self.BronzeDbManager_logger = pLogger
+        self.bronzeDb_Manager_config = pBronze_Config
+        self.bronzeDbManager_env = self.bronzeDb_Manager_config.get_options().environment
+        self.bronzeDb_Manager_schema = "BRONZE_" + self.bronzeDbManager_env
+        self.bronzeDb_Manager_logger = pLogger
         
-        self.pre_proc = self.BronzeDb_Manager_Config.get_options().PLSQL_pre_proc
-        if self.BronzeDb_Manager_Config.get_options().PLSQL_pre_proc_args:
-            self.pre_proc_args = self.BronzeDb_Manager_Config.get_options().PLSQL_pre_proc_args.split(',')
+        self.pre_proc = self.bronzeDb_Manager_config.get_options().PLSQL_pre_proc
+        if self.bronzeDb_Manager_config.get_options().PLSQL_pre_proc_args:
+            self.pre_proc_args = self.bronzeDb_Manager_config.get_options().PLSQL_pre_proc_args.split(',')
         else:
             self.pre_proc_args = []
-        self.post_proc = self.BronzeDb_Manager_Config.get_options().PLSQL_post_proc
-        if self.BronzeDb_Manager_Config.get_options():
-            self.post_proc_args = self.BronzeDb_Manager_Config.get_options().PLSQL_post_proc_args.split(',')
+        self.post_proc = self.bronzeDb_Manager_config.get_options().PLSQL_post_proc
+        if self.bronzeDb_Manager_config.get_options():
+            self.post_proc_args = self.bronzeDb_Manager_config.get_options().PLSQL_post_proc_args.split(',')
         else:
             self.post_proc_args = []
         
          # Establish connection to Bronze schema database
-        self.bronze_database_param = get_parser_config_settings("database")(self.BronzeDb_Manager_Config.get_configuration_file(),
-                                                                            self.BronzeDb_Manager_Schema)
-        self.bronze_db = DBFACTORY.create_instance(self.bronze_database_param.dbwrapper,self.BronzeDb_Manager_Config.get_configuration_file())
+        self.bronzeDb_Manager_Database_param = get_parser_config_settings("database")(self.bronzeDb_Manager_config.get_configuration_file(),
+                                                                            self.bronzeDb_Manager_schema)
+        self.bronzeDb_Manager_db = DBFACTORY.create_instance(self.bronzeDb_Manager_Database_param.dbwrapper,self.bronzeDb_Manager_config.get_configuration_file())
 
-        self.bronze_db_connection = self.bronze_db.create_db_connection(self.bronze_database_param)
+        self.bronzeDb_Manager_db_connection = self.bronzeDb_Manager_db.create_db_connection(self.bronzeDb_Manager_Database_param)
     
     def get_db(self):
-        return self.bronze_db
+        return self.bronzeDb_Manager_db
     
     def get_db_connection(self):
-        return self.bronze_db_connection
+        return self.bronzeDb_Manager_db_connection
     
     def get_get_bronze_schema(self):
-        return self.BronzeDb_Manager_Schema
+        return self.bronzeDb_Manager_schema
     
     def is_bronzetable_exists(self,pTable_name):
         res = False
-        if not self.bronze_db_connection:
+        if not self.bronzeDb_Manager_db_connection:
             return res
-        res = self.bronze_db.is_table_exists(pTable_name)
+        res = self.bronzeDb_Manager_db.is_table_exists(pTable_name)
         return res
     
     def get_bronze_lastupdated_row(self,pTable_name,pSrc_date_criteria):
         last_date = None
-        if not self.bronze_db_connection:
+        if not self.bronzeDb_Manager_db_connection:
             return last_date
-        last_date = self.bronze_db.get_table_max_column(pTable_name, pSrc_date_criteria)
+        last_date = self.bronzeDb_Manager_db.get_table_max_column(pTable_name, pSrc_date_criteria)
         return last_date
     
     def __run_proc__(self,pProc_name,pVerbose=None,*args):
         vStart = datetime.now()
         try:
-            if pProc_name and self.bronze_db_connection:
-                vCursor = self.bronze_db_connection.cursor()
-                vCallproc_args= list(args)
-                vCursor.callproc(pProc_name,vCallproc_args)
-                vCursor.close()
+            if pProc_name and self.bronzeDb_Manager_db:
+                vDmbs_output = self.bronzeDb_Manager_db.execute_proc(pProc_name,*args)
                 vDuration = datetime.now() - vStart
-                self.BronzeDbManager_logger.set_logger_properties('LH2',self.BronzeDb_Manager_Schema,pProc_name,"args:{}".format(str(args)),vDuration)
-                self.BronzeDbManager_logger.log()
+                if pVerbose:
+                    pVerbose.log(datetime.now(tz=timezone.utc), "BRONZE_PROC", "OUTPUT", log_message=vDmbs_output)
+                self.bronzeDb_Manager_logger.set_logger_properties('LH2',self.bronzeDb_Manager_schema,pProc_name,"args:{}".format(str(args)),vDuration)
+                self.bronzeDb_Manager_logger.log()
+                return True
+            else:
+                return False
         except oracledb.Error as err:
             vError = "ERROR calling Procedure {} with {}".format(pProc_name,args)
             if pVerbose:
@@ -381,6 +383,7 @@ class BronzeDbManager:
         
     def run_post_proc(self,pVerbose=None,*args):
        return self.__run_proc__(self.post_proc,pVerbose,*self.post_proc_args)
+   
 class BronzeSourceBuilder:
     # ENV : environement DEV, STG, PRD
     # config_file : dictionary json config file with connection parameters
