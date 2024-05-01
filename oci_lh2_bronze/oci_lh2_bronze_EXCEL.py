@@ -26,19 +26,6 @@ class BronzeSourceBuilderFileEXCEL(BronzeSourceBuilderFile):
             _file = fileargs[0]
             # Defining the sheet_name as the second argument (src_table)
             _wrksheet = fileargs[1]
-            """"
-            match self.src_name:
-                case "TURKEY":
-                    # Read Excel file with skipping the first row
-                    #_df = pd.read_excel(_file, sheet_name=_wrksheet, skiprows=1)
-                    _df = pd.read_excel(_file, sheet_name=_wrksheet, **file_read_options)
-                case "EXCEL":
-                    # Read Excel file without skipping rows
-                    #_df = pd.read_excel(_file, sheet_name=_wrksheet, skiprows=0)
-                    _df = pd.read_excel(_file, sheet_name=_wrksheet, skiprows=0)
-                case _:
-                    return None
-            """
             _df = pd.read_excel(_file, sheet_name=_wrksheet, **file_read_options)
             return _df
         else:
