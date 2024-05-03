@@ -2,10 +2,10 @@ import pandas as pd
 from nlsdata.oci_lh2_bronze.oci_lh2_bronze import *
 
 class BronzeSourceBuilderDb(BronzeSourceBuilder):
-    def __init__(self, br_config, src_name, src_origin_name, src_table_name, src_table_where, src_flag_incr,
-                 src_date_where, src_date_lastupdate, force_encode,logger):
-        super().__init__(br_config, "DB", src_name, src_origin_name, src_table_name, src_table_where,
-                         src_flag_incr, src_date_where, src_date_lastupdate, force_encode,logger)
+    def __init__(self, pBronze_Config:BronzeConfig, pBronzeDb_Manager:BronzeDbManager, pSrc_name, pSrc_origin_name, pSrc_table_name, pSrc_table_where, pSrc_flag_incr,
+                 pSrc_date_where, pSrc_date_lastupdate, pForce_encode,pLogger):
+        super().__init__(pBronze_Config, pBronzeDb_Manager, "DB", pSrc_name, pSrc_origin_name, pSrc_table_name, pSrc_table_where,
+                         pSrc_flag_incr, pSrc_date_where, pSrc_date_lastupdate, pForce_encode,pLogger)
 
         # Create connexion to source database
         self.source_database_param = get_parser_config_settings("database")(self.bronze_config.get_configuration_file(),self.src_name)
@@ -85,20 +85,20 @@ class BronzeSourceBuilderDb(BronzeSourceBuilder):
             vError = "ERROR Unicode Decode, table {}".format(self.src_table)
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "FETCH", vError, log_message=str(err),log_request=self.request)
-            self.logger.log(error=err, action=vError)
+            self.logger.log(pError=err, pAction=vError)
             self.__update_fetch_row_stats__()
             return False
         except oracledb.Error as err:
             vError = "ERROR Fetching table {}".format(self.src_table)
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "FETCH", vError, log_message='Oracle DB error :{}'.format(str(err)),log_request=self.request)
-            self.logger.log(error=err, action=vError)
+            self.logger.log(pError=err, pAction=vError)
             self.__update_fetch_row_stats__()
             return False
         except Exception as err:
             vError = "ERROR Fetching table {}".format(self.src_table)
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "FETCH", vError, log_message=str(err),log_request=self.request)
-            self.logger.log(error=err, action=vError)
+            self.logger.log(pError=err, pAction=vError)
             self.__update_fetch_row_stats__()
             return False
