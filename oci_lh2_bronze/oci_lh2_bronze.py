@@ -25,9 +25,11 @@ PARQUET_FILE_EXTENSION = ".parquet"
 DBFACTORY = NLSDbFactory()
 FILESTORAGEFACTORY = NLSFileStorageFactory()
 
-SourceProperties = namedtuple('SourceProperties',['type','name','schema','table','request','incremental','lastupdate'])
+SOURCE_PPROPERTIES_SYNONYMS = {'SRC_TYPE': 'type', 'SRC_NAME': 'name', 'SRC_ORIGIN_NAME': 'schema', 'SRC_OBJECT_NAME': 'table', 'SRC_OBJECT_CONSTRAINT': 'table_constraint', 'SRC_FLAG_ACTIVE': 'active', 'SRC_FLAG_INCR': 'incremental', 'SRC_DATE_CONSTRAINT': 'date_criteria', 'SRC_DATE_LASTUPDATE': 'last_update', 'FORCE_ENCODE': 'force_encode', 'BRONZE_POST_PROCEDURE': 'bronze_post_proc', 'BRONZE_POST_PROCEDURE_ARGS': 'bronze_post_proc_args'}
+SourceProperties = namedtuple('SourceProperties',list(SOURCE_PPROPERTIES_SYNONYMS.values()))
+# SourceProperties namedtuple is set into Exploit __init__, based on fields of table used to list sources
+
 BronzeProperties = namedtuple('BronzeProperties',['environment','schema','table','bucket','bucket_filepath','parquet_template'])
-#OciProperties = namedtuple('OciProperties',["filestorage_wrapper","namespace","profile","config_path","compartment_id","bucket_prefix_name","bucket_debug"])
 
 class BronzeConfig():
     #Define configuration envrionment parameters to execute.
@@ -165,11 +167,20 @@ class BronzeExploit:
             if self.verbose:
                 self.verbose.log(datetime.now(tz=timezone.utc), "EXPLOIT", "START", log_message=message)
 
+        #define SourceProperties namedtuple as a global type
+        global SourceProperties
+        vLoadingTableProperties = self.get_db().create_namedtuple_from_table('SourceProperties',self.exploit_running_loading_table)
+        vNew_fields = [SOURCE_PPROPERTIES_SYNONYMS.get(old_name, old_name) for old_name in vLoadingTableProperties._fields]
+        vNew_fields += 'request'
+        vDefaults_values = [None] * len(vNew_fields)
+        SourceProperties = namedtuple ('SourceProperties',vNew_fields,defaults=vDefaults_values)
+        
         # Execute a SQL query to fetch activ data from the table "LIST_DATASOURCE_LOADING_..." into a dataframe
         param_req = "select * from " + self.exploit_running_loading_table + " where SRC_FLAG_ACTIV = 1 ORDER BY SRC_TYPE,SRC_NAME,SRC_OBJECT_NAME"
         vCursor.execute(param_req)
-        self.df_param = pd.DataFrame(vCursor.fetchall())
-        self.df_param.columns = [x[0] for x in vCursor.description]
+        #self.df_param = pd.DataFrame(vCursor.fetchall())
+        #self.df_param.columns = [x[0] for x in vCursor.description]
+        self.iterator = iter(map(SourceProperties._make,vCursor.fetchall()))
         vCursor.close()
 
     def __del__(self):
@@ -184,12 +195,17 @@ class BronzeExploit:
         return self
 
     def __next__(self):
+        """
         try:
-            items = [self.df_param.iloc[self.idx,i] for i in range(len(self.df_param.columns))]
+            #items = [self.df_param.iloc[self.idx,i] for i in range(len(self.df_param.columns))]
+            vLine = self.df_param.iloc[self.idx]
+            items = dict(vLine)
         except IndexError:
             raise StopIteration()
         self.idx += 1
         return items
+        """
+        return next(self.iterator)
 
     def get_db(self) -> absdb:
         return self.exploit_db
@@ -203,18 +219,18 @@ class BronzeExploit:
     def get_loading_tables(self):
         return (self.exploit_loading_table,self.exploit_running_loading_table)
 
-    def update_exploit(self,src_name,src_origin_name,src_object_name,column_name, value):
+    def update_exploit(self,pSource:SourceProperties,PColumn_name, pValue):
         request = ""
         try:
             vCursor = self.get_db_connection().cursor()
-            request = "UPDATE " + self.exploit_loading_table + " SET "+column_name+" = :1 WHERE SRC_NAME = :2 AND SRC_ORIGIN_NAME = :3 AND SRC_OBJECT_NAME = :4"
+            request = "UPDATE " + self.exploit_loading_table + " SET "+PColumn_name+" = :1 WHERE SRC_NAME = :2 AND SRC_ORIGIN_NAME = :3 AND SRC_OBJECT_NAME = :4"
 
             # update last date or creation date (depends on table)
-            message = "Updating {} = {} on table {}".format(column_name,value,self.exploit_loading_table)
+            message = "Updating {} = {} on table {}".format(PColumn_name,pValue,self.exploit_loading_table)
             if self.verbose:
                 self.verbose.log(datetime.now(tz=timezone.utc), "SET_LASTUPDATE", "START", log_message=message,
                             log_request=request)
-            bindvars = (value,src_name,src_origin_name,src_object_name)
+            bindvars = (pValue,pSource.name,pSource.schema,pSource.table)
             vCursor.execute(request,bindvars)
             self.get_db_connection().commit()
             vCursor.close()
@@ -375,16 +391,21 @@ class BronzeDbManager:
         last_date = self.get_db().get_table_max_column(pTable_name, pSrc_date_criteria)
         return last_date
     
-    def run_proc(self,pVerbose=None,pProc_exe_context='GLOBAL',pProc_name='',/,*args):
+    def run_proc(self,pProc_name='',/,*args,pVerbose=None,pProc_exe_context='GLOBAL'):
         vStart = datetime.now()
-        vReturn = False
+        vReturn = True
         try:
             if pProc_name and self.get_db():
                 vDmbs_output = self.get_db().execute_proc(pProc_name,*args)
                 vLog_message = vDmbs_output
-                vAction = "SUCCESS"
-                vErr = None
-                vReturn = True
+                if self.get_db().last_execute_proc_completion():
+                    vAction = "SUCCESS"
+                    vErr = None
+                    vReturn = True
+                else:
+                    vAction = "ERROR"
+                    vErr = Exception("Error during execution of procedure {} with {}".format(pProc_name,args))
+                    vReturn = False
         except Exception as vErr:
             vAction = "ERROR calling Procedure {} with {}".format(pProc_name,args)
             vLog_message = 'Oracle DB error :{}'.format(str(vErr))
@@ -400,10 +421,10 @@ class BronzeDbManager:
             return vReturn
                  
     def run_pre_proc(self,pVerbose=None,*args):
-        return self.run_proc(pVerbose,'GLOBAL',self.pre_proc,*self.pre_proc_args)
+        return self.run_proc(self.pre_proc,*self.pre_proc_args,pVerbose=pVerbose,pProc_exe_context='GLOBAL')
         
     def run_post_proc(self,pVerbose=None,*args):
-       return self.run_proc(pVerbose,'GLOBAL',self.post_proc,*self.post_proc_args)
+       return self.run_proc(self.post_proc,*self.post_proc_args,pVerbose=pVerbose,pProc_exe_context='GLOBAL')
    
 class BronzeSourceBuilder:
     # ENV : environement DEV, STG, PRD
@@ -416,20 +437,11 @@ class BronzeSourceBuilder:
     # SRC_date_where : clause where to filter on records date, might depend on table
     # SRC_date_lastupdate : update last timestamp for data integration
     # FORCE_ENCODE : if UnicodeError during fetch, custom select by converting column of type VARCHAR to a specific CHARSET
-    def __init__(self, pBronze_config:BronzeConfig, pBronzeDb_Manager:BronzeDbManager, pSrc_type, pSrc_name, pSrc_origin_name, pSrc_table_name, pSrc_table_where,
-                 pSrc_flag_incr, pSrc_date_criteria, pSrc_date_lastupdate,pForce_encode,pLogger:BronzeLogger):
+    def __init__(self, pSource_properties:SourceProperties, pBronze_config:BronzeConfig, pBronzeDb_Manager:BronzeDbManager,pLogger:BronzeLogger):
+        self.bronze_source_properties = pSource_properties
         self.bronze_config = pBronze_config
         self.bronzedb_manager = pBronzeDb_Manager
         self.env = self.bronze_config.get_options().environment
-        self.src_type = pSrc_type
-        self.src_name = pSrc_name
-        self.src_schema = pSrc_origin_name
-        self.src_table = pSrc_table_name
-        self.src_object_constraint = pSrc_table_where
-        self.src_flag_incr = pSrc_flag_incr
-        self.src_date_criteria = pSrc_date_criteria
-        self.src_date_lastupdate = pSrc_date_lastupdate
-        self.force_encode = pForce_encode
 
         # Create "tmp" folder to save parquet files
         self.__set_local_workgingdir__(self.bronze_config.get_tempdir())
@@ -473,15 +485,15 @@ class BronzeSourceBuilder:
         # For DB source, build select request
         self.where = ''
         self.db_execute_bind = []
-        if self.src_object_constraint != None:
-            self.where += self.src_object_constraint
-        if self.src_date_criteria != None and self.src_date_lastupdate != None:
+        if self.bronze_source_properties.table_constraint != None:
+            self.where += self.bronze_source_properties.table_constraint
+        if self.bronze_source_properties.date_criteria != None and self.bronze_source_properties.last_update != None:
             if self.where != "":
                 self.where += " AND "
             else:
                 self.where += " WHERE "
-            self.where += self.src_date_criteria + " > :1"
-            self.db_execute_bind = [self.src_date_lastupdate]
+            self.where += self.bronze_source_properties.date_criteria + " > :1"
+            self.db_execute_bind = [self.bronze_source_properties.last_update]
         self.request = ""
 
         # Set Bronze table settings : table name, bucket path to add parquet files, get index to restart parquet files interation
@@ -492,7 +504,7 @@ class BronzeSourceBuilder:
         self.logger.link_to_bronze_source(self)
 
     def __init_bronze_bucket_settings__(self):
-        self.__set_bronze_bucket_settings__(self.src_name)
+        self.__set_bronze_bucket_settings__(self.bronze_source_properties.name)
         
     def __set_local_workgingdir__(self, path):
         # Create a temporary directory if it doesn't exist
@@ -612,13 +624,13 @@ class BronzeSourceBuilder:
         # create select request from source
         # if need to encode columns, cast columns on select request
         if self.source_db:
-            full_table_name = self.source_db.get_full_table_name(self.src_schema,self.src_table)
-            if not self.force_encode:
+            full_table_name = self.source_db.get_full_table_name(self.bronze_source_properties.schema,self.bronze_source_properties.table)
+            if not self.bronze_source_properties.force_encode:
                 self.request = "select * from " + full_table_name 
             else:
                 if not self.source_db_connection:
                     raise Exception("Error no DB connection")
-                (could_custom_select,custom_select_result) = self.source_db.create_select_encode_from_table(full_table_name, self.force_encode)
+                (could_custom_select,custom_select_result) = self.source_db.create_select_encode_from_table(full_table_name, self.bronze_source_properties.force_encode)
                 if could_custom_select:
                     self.request = custom_select_result
                 else:
@@ -628,9 +640,9 @@ class BronzeSourceBuilder:
     def __sync_bronze_table__(self,verbose=None):
         table = self.bronze_table
         try:
-            if not self.bronzedb_manager.get_db_connection():
+            if not self.get_bronzedb_manager().get_db_connection():
                 raise Exception("Error no DB connection")
-            cursor = self.bronzedb_manager.get_db_connection().cursor()
+            cursor = self.get_bronzedb_manager().get_db_connection().cursor()
 
             request = 'BEGIN DBMS_CLOUD.SYNC_EXTERNAL_PART_TABLE(table_name =>\'' + table + '\'); END;'
 
@@ -658,19 +670,21 @@ class BronzeSourceBuilder:
     def __create_bronze_table__(self,verbose=None):
         vTable = self.bronze_table
         try:
-            if not self.bronzedb_manager.get_db_connection():
+            if not self.get_bronzedb_manager().get_db_connection():
                 raise Exception("Error no DB connection")
-            cursor = self.bronzedb_manager.get_db_connection().cursor()
+            cursor = self.get_bronzedb_manager().get_db_connection().cursor()
             # Dropping table before recreating
             #drop = 'BEGIN EXECUTE IMMEDIATE \'DROP TABLE ' + vTable + '\'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;'
             if verbose:
-                message = "Dropping table {}.{} ".format(self.bronzedb_manager.get_db_parameters().p_username,vTable)
+                message = "Dropping table {}.{} ".format(self.get_bronzedb_manager().get_db_parameters().p_username,vTable)
                 verbose.log(datetime.now(tz=timezone.utc), "DROP_TABLE", "START", log_message=message)
             #cursor.execute(drop)
-            self.bronzedb_manager.run_proc(verbose,vTable,'ADMIN.DROP_TABLE',*[self.bronzedb_manager.get_db_parameters().p_username,vTable])
-
+            vResult_run_proc = self.get_bronzedb_manager().run_proc('ADMIN.DROP_TABLE',*[self.get_bronzedb_manager().get_db_parameters().p_username,vTable],pVerbose=verbose,pProc_exe_context=vTable)
+            if not vResult_run_proc:
+                raise Exception("ERROR dropping table {}".format(vTable))
+            
             # Create external part table parsing parquet files from bucket root (for incremental mode)
-            if self.src_flag_incr:
+            if self.bronze_source_properties.incremental:
                 # Create external part table parsing parquet files from bucket root (for incremental mode)
                 root_path = self.bucket_file_path.split("/")[0]+"/"
                 create = 'BEGIN DBMS_CLOUD.CREATE_EXTERNAL_PART_TABLE(table_name =>\'' + vTable + '\',credential_name =>\'' + self.oci_adw_credential + '\', file_uri_list =>\'' + self.oci_objectstorage_url + self.bucketname + '/o/'+root_path+'*' + self.parquet_file_name_template + '*.parquet\', format => \'{"type":"parquet", "schema": "first","partition_columns":[{"name":"fetch_year","type":"varchar2(100)"},{"name":"fetch_month","type":"varchar2(100)"},{"name":"fetch_day","type":"varchar2(100)"}]}\'); END;'
@@ -687,9 +701,11 @@ class BronzeSourceBuilder:
             cursor.execute(create)
             # Alter column type from BINARY_DOUBLE to NUMBER
             if verbose:
-                message = "Altering table columns type {}.{}".format(self.bronzedb_manager.get_db_parameters().p_username,vTable)
+                message = "Altering table columns type {}.{}".format(self.get_bronzedb_manager().get_db_parameters().p_username,vTable)
                 verbose.log(datetime.now(tz=timezone.utc), "ALTER_TABLE", "START", log_message=message)
-            self.bronzedb_manager.run_proc(verbose,vTable,'ADMIN.ALTER_TABLE_COLUMN_TYPE',*[self.bronzedb_manager.get_db_parameters().p_username,vTable,'BINARY_DOUBLE','NUMBER(38,10)'])
+            self.get_bronzedb_manager().run_proc('ADMIN.ALTER_TABLE_COLUMN_TYPE',*[self.get_bronzedb_manager().get_db_parameters().p_username,vTable,'BINARY_DOUBLE','NUMBER(38,10)'],pVerbose=verbose,pProc_exe_context=vTable)
+            if not vResult_run_proc:
+                raise Exception("ERROR altering table columns type {}.{}".format(self.get_bronzedb_manager().get_db_parameters().p_username,vTable))
             cursor.close()
             return True
 
@@ -715,6 +731,15 @@ class BronzeSourceBuilder:
     def get_bronze_config(self):
         return self.bronze_config
 
+    def get_bronzedb_manager(self):
+        return self.bronzedb_manager
+    
+    def get_post_procedure_parameters(self):
+        if self.bronze_source_properties.bronze_post_proc:
+            return (self.bronze_source_properties.bronze_post_proc,self.bronze_source_properties.bronze_post_proc_args)
+        else:
+            return None
+    
     def get_rows_stats(self):
         return (self.total_imported_rows, self.total_imported_rows_size)
 
@@ -725,7 +750,7 @@ class BronzeSourceBuilder:
         return (self.total_sent_parquets, self.total_sent_parquets_size,self.total_temp_parquets)
 
     def get_source_properties(self):
-        return SourceProperties(self.src_type,self.src_name,self.src_schema,self.src_table,self.request,self.src_flag_incr,self.src_date_lastupdate)
+        return self.bronze_source_properties
 
     def get_bronze_properties(self):
         return BronzeProperties(self.env,self.bronze_schema,self.bronze_table,self.bucketname,self.bucket_file_path,self.parquet_file_name_template)
@@ -734,7 +759,7 @@ class BronzeSourceBuilder:
         return self.logger
 
     def get_bronze_lastupdated_row(self):
-        return self.bronzedb_manager.get_bronze_lastupdated_row(self.bronze_table, self.src_date_criteria)
+        return self.get_bronzedb_manager().get_bronze_lastupdated_row(self.bronze_table, self.bronze_source_properties.date_criteria)
 
     def get_bronze_bucket_settings(self):
         return self.bronze_bucket_settings
@@ -750,7 +775,7 @@ class BronzeSourceBuilder:
             self.logger.log(pError=Exception(vError), pAction=vError)
             return False
         self.parquet_file_list_tosend = []
-        if not self.src_flag_incr:
+        if not self.bronze_source_properties.incremental:
             # if not incremental mode, merging parquet files into one, before sending
             merged_parquet_file_name = self.parquet_file_name_template+PARQUET_FILE_EXTENSION
             merged_parquet_file = os.path.join(self.local_workingdir, merged_parquet_file_name)
@@ -799,7 +824,7 @@ class BronzeSourceBuilder:
 
     def update_bronze_schema(self,verbose):
         try:
-            message = "Update Bronze schema {} : Incremental {}".format(self.bronze_table, bool(self.src_flag_incr))
+            message = "Update Bronze schema {} : Incremental {}".format(self.bronze_table, bool(self.bronze_source_properties.incremental))
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "UPADATE_BRONZE", "START", log_message=message)
             if not self.parquet_file_list:
@@ -807,7 +832,7 @@ class BronzeSourceBuilder:
                 if verbose:
                     verbose.log(datetime.now(tz=timezone.utc), "UPADATE_BRONZE", "END", log_message=message)
                 res = True
-            elif self.src_flag_incr and self.bronzedb_manager.is_bronzetable_exists(self.bronze_table):
+            elif self.bronze_source_properties.incremental and self.get_bronzedb_manager().is_bronzetable_exists(self.bronze_table):
                 # if incremental mode, if table exists, update (synchronize) external part table
                 res = self.__sync_bronze_table__(verbose)
             else:
@@ -835,7 +860,7 @@ class BronzeSourceBuilder:
         pass
 
 class BronzeGenerator:
-    def __init__(self, pBronzeSourceBuilder, pBronzeExploit,pLogger=None):
+    def __init__(self, pBronzeSourceBuilder:BronzeSourceBuilder, pBronzeExploit:BronzeExploit,pLogger:BronzeLogger=None):
         self.__bronzesourcebuilder__ = pBronzeSourceBuilder
         self.__bronzeexploit__ = pBronzeExploit
         self.__logger__ = pLogger
@@ -862,9 +887,15 @@ class BronzeGenerator:
                 last_date = self.__bronzesourcebuilder__.get_bronze_lastupdated_row()
                 #print(last_date, type(last_date))
 
-                if not self.__bronzeexploit__.update_exploit(vSourceProperties.name, vSourceProperties.schema, vSourceProperties.table,
-                                              "SRC_DATE_LASTUPDATE", last_date):
+                if not self.__bronzeexploit__.update_exploit(vSourceProperties,"SRC_DATE_LASTUPDATE", last_date):
                     break
+            vPost_proc_param = self.__bronzesourcebuilder__.get_post_procedure_parameters()
+            if vPost_proc_param:
+                vBronze_table = self.__bronzesourcebuilder__.get_bronze_properties.table
+                vResult_post_proc = self.__bronzesourcebuilder__.get_bronzedb_manager().run_proc(vPost_proc_param[0],*vPost_proc_param[1],pVerbose=verbose,pProc_exe_context=vBronze_table)
+                if not vResult_post_proc:
+                    break
+            
             generate_result = True
             break
         self.__bronzesourcebuilder__.update_total_duration()

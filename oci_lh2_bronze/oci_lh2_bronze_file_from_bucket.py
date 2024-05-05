@@ -36,15 +36,15 @@ class BronzeSourceBuilderFileFromBucket(BronzeSourceBuilderFile):
             if bucket.buckets_exists():
 
                 if verbose:
-                    message = "Extracting data from file {0},{1},{2}".format(self.src_name, self.src_schema, self.src_table)
+                    message = "Extracting data from file {0},{1},{2}".format(self.bronze_source_properties.name, self.bronze_source_properties.schema, self.bronze_source_properties.table)
                     verbose.log(datetime.now(tz=timezone.utc), "FETCH", "START", log_message=message)
 
-                if self.src_name == "CSV":
+                if self.bronze_source_properties.name == "CSV":
                     table = pd.read_csv() #Saisir comme paramètre de la focntion un chemin qui pointe vers le fichier csv
                 else:
-                    vError = "ERROR Unknown source {0}, extracting data from file {1},{2}".format(self.src_name,
-                                                                                              self.src_schema,
-                                                                                              self.src_table)
+                    vError = "ERROR Unknown source {0}, extracting data from file {1},{2}".format(self.bronze_source_properties.name,
+                                                                                              self.bronze_source_properties.schema,
+                                                                                              self.bronze_source_properties.table)
                     if verbose:
                         verbose.log(datetime.now(tz=timezone.utc), "FETCH", vError, log_message='')
                     self.logger.log(pError=Exception('Unkown source'), pAction=vError)
@@ -58,8 +58,8 @@ class BronzeSourceBuilderFileFromBucket(BronzeSourceBuilderFile):
                 self.__update_fetch_row_stats__()
                 return True
         except Exception as err:
-            vError = "ERROR Extracting from {0}, file {1},{2} : {3}".format(self.src_name, self.src_schema,
-                                                                            self.src_table, str(err))
+            vError = "ERROR Extracting from {0}, file {1},{2} : {3}".format(self.bronze_source_properties.name, self.bronze_source_properties.schema,
+                                                                            self.bronze_source_properties.table, str(err))
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "FETCH", vError, log_message=str(err))
             self.logger.log(pError=err, pAction=vError)
