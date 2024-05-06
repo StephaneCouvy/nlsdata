@@ -171,16 +171,16 @@ class BronzeExploit:
         global SourceProperties
         vLoadingTableProperties = self.get_db().create_namedtuple_from_table('SourceProperties',self.exploit_running_loading_table)
         vNew_fields = [SOURCE_PPROPERTIES_SYNONYMS.get(old_name, old_name) for old_name in vLoadingTableProperties._fields]
-        vNew_fields += 'request'
+        vNew_fields.append('request')
         vDefaults_values = [None] * len(vNew_fields)
         SourceProperties = namedtuple ('SourceProperties',vNew_fields,defaults=vDefaults_values)
         
         # Execute a SQL query to fetch activ data from the table "LIST_DATASOURCE_LOADING_..." into a dataframe
         param_req = "select * from " + self.exploit_running_loading_table + " where SRC_FLAG_ACTIV = 1 ORDER BY SRC_TYPE,SRC_NAME,SRC_OBJECT_NAME"
         vCursor.execute(param_req)
-        #self.df_param = pd.DataFrame(vCursor.fetchall())
-        #self.df_param.columns = [x[0] for x in vCursor.description]
-        self.iterator = iter(map(SourceProperties._make,vCursor.fetchall()))
+        self.df_param = pd.DataFrame(vCursor.fetchall())
+        self.df_param.columns = [x[0] for x in vCursor.description]
+        #self.iterator = iter(map(SourceProperties._make,vCursor.fetchall()))
         vCursor.close()
 
     def __del__(self):
@@ -195,17 +195,16 @@ class BronzeExploit:
         return self
 
     def __next__(self):
-        """
         try:
             #items = [self.df_param.iloc[self.idx,i] for i in range(len(self.df_param.columns))]
-            vLine = self.df_param.iloc[self.idx]
-            items = dict(vLine)
+            vLine = self.df_param.iloc[self.idx].tolist()
+            items = SourceProperties(*vLine)
         except IndexError:
             raise StopIteration()
         self.idx += 1
         return items
-        """
-        return next(self.iterator)
+        
+        #return next(self.iterator)
 
     def get_db(self) -> absdb:
         return self.exploit_db
@@ -703,7 +702,7 @@ class BronzeSourceBuilder:
             if verbose:
                 message = "Altering table columns type {}.{}".format(self.get_bronzedb_manager().get_db_parameters().p_username,vTable)
                 verbose.log(datetime.now(tz=timezone.utc), "ALTER_TABLE", "START", log_message=message)
-            self.get_bronzedb_manager().run_proc('ADMIN.ALTER_TABLE_COLUMN_TYPE',*[self.get_bronzedb_manager().get_db_parameters().p_username,vTable,'BINARY_DOUBLE','NUMBER(38,10)'],pVerbose=verbose,pProc_exe_context=vTable)
+            vResult_run_proc = self.get_bronzedb_manager().run_proc('ADMIN.ALTER_TABLE_COLUMN_TYPE',*[self.get_bronzedb_manager().get_db_parameters().p_username,vTable,'BINARY_DOUBLE','NUMBER(38,10)'],pVerbose=verbose,pProc_exe_context=vTable)
             if not vResult_run_proc:
                 raise Exception("ERROR altering table columns type {}.{}".format(self.get_bronzedb_manager().get_db_parameters().p_username,vTable))
             cursor.close()

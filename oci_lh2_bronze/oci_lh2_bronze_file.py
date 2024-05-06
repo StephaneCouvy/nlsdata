@@ -5,10 +5,9 @@ import glob
 
 # Define a class BronzeSourceBuilderFile inheriting from BronzeSourceBuilder
 class BronzeSourceBuilderFile(BronzeSourceBuilder):
-    def __init__(self, pBronze_Config:BronzeConfig, pBronzeDb_Manager:BronzeDbManager,pSrc_name, pSrc_origin_name, pSrc_table_name, pSrc_table_where, pSrc_flag_incr,
-                 pSrc_date_where, pSrc_date_lastupdate, pForce_encode, pLogger):
-        super().__init__(pBronze_Config, pBronzeDb_Manager, "FILE", pSrc_name, pSrc_origin_name, pSrc_table_name, pSrc_table_where,
-                         pSrc_flag_incr, pSrc_date_where, pSrc_date_lastupdate, pForce_encode, pLogger)
+    def __init__(self, pSourceProperties:SourceProperties, pBronze_config:BronzeConfig, pBronzeDb_Manager:BronzeDbManager,pLogger:BronzeLogger):
+        vSourceProperties = pSourceProperties._replace(type="FILE")
+        super().__init__(vSourceProperties,pBronze_config, pBronzeDb_Manager,pLogger)
         
         # convert src_table_where into dictionary to be used into read file
         if self.bronze_source_properties.table_constraint:
