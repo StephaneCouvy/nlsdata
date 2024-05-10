@@ -8,10 +8,8 @@ from nlsdata.oci_lh2_bronze.oci_lh2_bronze import *
 from nlsdata.oci_lh2_bronze.oci_lh2_bronze_file import *
 
 class BronzeSourceBuilderFileCSV(BronzeSourceBuilderFile):
-    def __init__(self, pBronze_Config:BronzeConfig, pBronzeDb_Manager:BronzeDbManager,pSrc_name, pSrc_origin_name, pSrc_table_name, pSrc_table_where, pSrc_flag_incr,
-                 pSrc_date_where, pSrc_date_lastupdate, pForce_encode, pLogger):
-        super().__init__(pBronze_Config, pBronzeDb_Manager, pSrc_name, pSrc_origin_name, pSrc_table_name, pSrc_table_where, pSrc_flag_incr,
-                         pSrc_date_where, pSrc_date_lastupdate, pForce_encode, pLogger)
+    def __init__(self, pSourceProperties:SourceProperties, pBronze_config:BronzeConfig, pBronzeDb_Manager:BronzeDbManager,pLogger:BronzeLogger):
+        super().__init__(pSourceProperties, pBronzeDb_Manager, pLogger)
 
 
      # Method to import CSV files
