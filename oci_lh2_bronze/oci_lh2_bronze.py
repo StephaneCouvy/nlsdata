@@ -900,7 +900,7 @@ class BronzeGenerator:
         self.__bronzesourcebuilder__.update_total_duration()
         if generate_result:
             if verbose:
-                print(vSourceProperties)
+                #print(vSourceProperties)
                 message = "Integrating {3} rows from {0} {1} {2} in {4}".format(vSourceProperties.name, vSourceProperties.schema,
                                                                          vSourceProperties.table, self.__bronzesourcebuilder__.get_rows_stats()[0],self.__bronzesourcebuilder__.get_durations_stats()[0])
                 verbose.log(datetime.now(tz=timezone.utc), "INTEGRATE", "END", log_message=message)

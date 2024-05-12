@@ -9,7 +9,7 @@ from nlsdata.oci_lh2_bronze.oci_lh2_bronze_file import *
 
 class BronzeSourceBuilderFileCSV(BronzeSourceBuilderFile):
     def __init__(self, pSourceProperties:SourceProperties, pBronze_config:BronzeConfig, pBronzeDb_Manager:BronzeDbManager,pLogger:BronzeLogger):
-        super().__init__(pSourceProperties, pBronzeDb_Manager, pLogger)
+        super().__init__(pSourceProperties, pBronze_config, pBronzeDb_Manager, pLogger)
 
 
      # Method to import CSV files
