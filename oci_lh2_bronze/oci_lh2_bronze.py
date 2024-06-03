@@ -347,11 +347,15 @@ class BronzeDbManager:
         else:
             self.pre_proc_args = []
         self.post_proc = self.bronzeDb_Manager_config.get_options().PLSQL_post_proc
-        if self.bronzeDb_Manager_config.get_options():
+        if self.bronzeDb_Manager_config.get_options().PLSQL_post_proc_args:
             self.post_proc_args = self.bronzeDb_Manager_config.get_options().PLSQL_post_proc_args.split(',')
         else:
             self.post_proc_args = []
-        
+        self.update_lh2_tables_stats_proc = self.bronzeDb_Manager_config.get_options().PLSQL_update_lh2_tables_stats_proc
+        if self.bronzeDb_Manager_config.get_options().PLSQL_update_lh2_tables_stats_proc_args:
+            self.update_lh2_tables_stats_proc_args = self.bronzeDb_Manager_config.get_options().PLSQL_update_lh2_tables_stats_proc_args.split(',')
+        else:
+            self.update_lh2_tables_stats_proc_args = []
          # Establish connection to Bronze schema database
         self.bronzeDb_Manager_Database_param = get_parser_config_settings("database")(self.bronzeDb_Manager_config.get_configuration_file(),
                                                                             self.get_bronze_database_name())
@@ -424,6 +428,7 @@ class BronzeDbManager:
         
     def run_post_proc(self,pVerbose=None,*args):
        return self.run_proc(self.post_proc,*self.post_proc_args,pVerbose=pVerbose,pProc_exe_context='GLOBAL')
+   
    
 class BronzeSourceBuilder:
     # ENV : environement DEV, STG, PRD
