@@ -353,9 +353,11 @@ class BronzeDbManager:
             self.post_proc_args = []
         self.update_lh2_tables_stats_proc = self.bronzeDb_Manager_config.get_options().PLSQL_update_lh2_tables_stats_proc
         if self.bronzeDb_Manager_config.get_options().PLSQL_update_lh2_tables_stats_proc_args:
-            self.update_lh2_tables_stats_proc_args = self.bronzeDb_Manager_config.get_options().PLSQL_update_lh2_tables_stats_proc_args.split(',')
+            self.update_lh2_tables_stats_proc_args = [self.bronzeDbManager_env].append(self.bronzeDb_Manager_config.get_options().PLSQL_update_lh2_tables_stats_proc_args.split(','))
         else:
             self.update_lh2_tables_stats_proc_args = []
+        self.lh2_tables_stats = self.bronzeDb_Manager_config.get_options().LH2_TABLES_STATS
+        
          # Establish connection to Bronze schema database
         self.bronzeDb_Manager_Database_param = get_parser_config_settings("database")(self.bronzeDb_Manager_config.get_configuration_file(),
                                                                             self.get_bronze_database_name())
@@ -380,9 +382,6 @@ class BronzeDbManager:
     
     def get_post_proc(self):
         return (self.post_proc,self.post_proc_args)
-    
-    def update_lh2_tables_stats_proc(self):
-        return (self.update_lh2_tables_stats_proc,self.update_lh2_tables_stats_proc_args)
     
     def is_bronzetable_exists(self,pTable_name):
         res = False
@@ -433,8 +432,32 @@ class BronzeDbManager:
        return self.run_proc(self.post_proc,*self.post_proc_args,pVerbose=pVerbose,pProc_exe_context='GLOBAL')
    
     def run_update_lh2_tables_stats_proc(self,pVerbose=None):
-       return self.run_proc(self.update_lh2_tables_stats_proc,*self.update_lh2_tables_stats_proc_args,pVerbose=pVerbose,pProc_exe_context='GLOBAL')
-   
+        self.run_proc(self.update_lh2_tables_stats_proc,*self.update_lh2_tables_stats_proc_args,pVerbose=pVerbose,pProc_exe_context='GLOBAL')
+       
+       # Execute a SQL query to fetch activ data from the table "LIST_DATASOURCE_LOADING_..." into a dataframe
+        v_cursor = self.get_db_connection.cursor()
+        v_param_req = "select * from " + self.lh2_tables_stats + " ORDER BY OWNER,TABLE_NAME"
+        v_cursor.execute(v_param_req)
+        self.df_tables_stats = pd.DataFrame(v_cursor.fetchall())
+        self.df_tables_stats.columns = [x[0] for x in v_cursor.description]
+        v_cursor.close()
+        # Get distinct bucket names from the column
+        v_bronze_buckets_array = self.df_tables_stats['BUCKET'].unique()
+        # Create a new DataFrame from the distinct values
+        self.df_bronze_buckets_parquets = pd.DataFrame(v_bronze_buckets_array,columns=['BUCKET'])
+        # Add a column 'LIST_PARQUETS' with default values (here, empty lists)
+        self.df_bronze_buckets_parquets['LIST_PARQUETS'] = [[] for _ in range(len(self.df_bronze_buckets_parquets))]
+
+        v_bronze_bucket_proxy = BronzeBucketProxy(self.bronzeDbManager_env,self.bronzeDb_Manager_config)
+        # Iterate over the 'BUCKET' column and change the value of 'LIST_PARQUETS'
+        for index, row in self.df_bronze_buckets_parquets.iterrows():
+            v_bucket_name = row['BUCKET']
+            v_bronze_bucket_proxy.set_bucket_by_name(v_bucket_name)
+            v_bucket = v_bronze_bucket_proxy.get_bucket()
+            v_bucket_list_objects = v_bucket_name.list_objects()
+            self.df_bronze_buckets_parquets.at[index, 'LIST_PARQUETS'] = v_bucket_list_objects
+
+        
    
 class BronzeBucketProxy:
     # Class to provide a substitute to manage bronze bucket.
