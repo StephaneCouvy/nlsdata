@@ -218,18 +218,18 @@ class BronzeExploit:
     def get_loading_tables(self):
         return (self.exploit_loading_table,self.exploit_running_loading_table)
 
-    def update_exploit(self,pSource:SourceProperties,PColumn_name, pValue):
+    def update_exploit(self,p_source:SourceProperties,p_column_name, pValue):
         request = ""
         try:
             vCursor = self.get_db_connection().cursor()
-            request = "UPDATE " + self.exploit_loading_table + " SET "+PColumn_name+" = :1 WHERE SRC_NAME = :2 AND SRC_ORIGIN_NAME = :3 AND SRC_OBJECT_NAME = :4"
+            request = "UPDATE " + self.exploit_loading_table + " SET "+p_column_name+" = :1 WHERE SRC_NAME = :2 AND SRC_ORIGIN_NAME = :3 AND SRC_OBJECT_NAME = :4"
 
             # update last date or creation date (depends on table)
-            message = "Updating {} = {} on table {}".format(PColumn_name,pValue,self.exploit_loading_table)
+            message = "Updating {} = {} on table {}".format(p_column_name,pValue,self.exploit_loading_table)
             if self.verbose:
                 self.verbose.log(datetime.now(tz=timezone.utc), "SET_LASTUPDATE", "START", log_message=message,
                             log_request=request)
-            bindvars = (pValue,pSource.name,pSource.schema,pSource.table)
+            bindvars = (pValue,p_source.name,p_source.schema,p_source.table)
             vCursor.execute(request,bindvars)
             self.get_db_connection().commit()
             vCursor.close()
@@ -436,8 +436,8 @@ class BronzeDbManager:
        
        # Execute a SQL query to fetch activ data from the table "LIST_DATASOURCE_LOADING_..." into a dataframe
         v_cursor = self.get_db_connection.cursor()
-        v_param_req = "select * from " + self.lh2_tables_stats + " ORDER BY OWNER,TABLE_NAME"
-        v_cursor.execute(v_param_req)
+        v_req = "select * from " + self.lh2_tables_stats + " WHERE ENV = \'"+ self.bronzeDbManager_env +"\' AND TABLE_TYPE like \'External%\' ORDER BY OWNER,TABLE_NAME"
+        v_cursor.execute(v_req)
         self.df_tables_stats = pd.DataFrame(v_cursor.fetchall())
         self.df_tables_stats.columns = [x[0] for x in v_cursor.description]
         v_cursor.close()
@@ -446,16 +446,72 @@ class BronzeDbManager:
         # Create a new DataFrame from the distinct values
         self.df_bronze_buckets_parquets = pd.DataFrame(v_bronze_buckets_array,columns=['BUCKET'])
         # Add a column 'LIST_PARQUETS' with default values (here, empty lists)
-        self.df_bronze_buckets_parquets['LIST_PARQUETS'] = [[] for _ in range(len(self.df_bronze_buckets_parquets))]
+        self.df_bronze_buckets_parquets['BUCKET_LIST_PARQUETS'] = [[] for _ in range(len(self.df_bronze_buckets_parquets))]
 
         v_bronze_bucket_proxy = BronzeBucketProxy(self.bronzeDbManager_env,self.bronzeDb_Manager_config)
-        # Iterate over the 'BUCKET' column and change the value of 'LIST_PARQUETS'
+        # Iterate over the 'BUCKET' column and change the value of 'LIST_PARQUETS' with list of objects name into each bucket
         for index, row in self.df_bronze_buckets_parquets.iterrows():
             v_bucket_name = row['BUCKET']
             v_bronze_bucket_proxy.set_bucket_by_name(v_bucket_name)
             v_bucket = v_bronze_bucket_proxy.get_bucket()
-            v_bucket_list_objects = v_bucket_name.list_objects()
-            self.df_bronze_buckets_parquets.at[index, 'LIST_PARQUETS'] = v_bucket_list_objects
+            v_bucket_list_objects = v_bucket.list_objects()
+            self.df_bronze_buckets_parquets.at[index, 'BUCKET_LIST_PARQUETS'] = [{'name':o.name,'size_mb':o.size/1024} for o in v_bucket_list_objects]
+   
+        # iterate Buckets and check for each external tables associated to the bucket, which bucket files are associated to the table
+        # Bucket files not associated to any table, will associated to a"zombies" table
+        for index,row in self.df_bronze_buckets_parquets.iterrows():
+            v_bucket_name = row['BUCKET']
+            v_df_bucket_tables = self.df_tables_stats[self.df_tables_stats['BUCKET'] == v_bucket_name]
+            v_updated_bucket_tables = self.__match_files_to_tables__(v_df_bucket_tables,row['BUCKET_LIST_PARQUETS'])
+        print(v_updated_bucket_tables)
+        return v_updated_bucket_tables
+            
+    def __match_files_to_tables__(p_df, p_list_file_objects):
+        # Function to match files to tables and handle "zombies"
+        v_matches = []
+        v_zombies = []
+        
+        # Dictionary to track file associations
+        v_file_associated = {v_file['name']: {'associated':False,'size_mb':v_file['size_mb']} for v_file in p_list_file_objects}
+
+        # Associate files with tables
+        for _, v_row in p_df.iterrows():
+            v_env = v_table_data['ENV']
+            v_bucket = v_table_data['BUCKET']
+            v_table_data = v_row.to_dict()
+            v_uri_pattern = v_table_data['FILE_URI']
+            v_matching_files = [v_file for v_file in p_list_file_objects if fnmatch.fnmatch(v_file['name'], v_uri_pattern)]
+            
+            for v_file in v_matching_files:
+                v_file_associated[v_file['name']][0] = True
+                
+            # update list fo parquets, number of parquet files and total size of parquet files
+            v_table_data['LIST_PARQUETS'] = [v_file['name'] for v_file in v_matching_files]
+            v_table_data['NUM_PARQUETS'] = len(v_table_data['LIST_PARQUETS'])
+            v_table_data['SIZE_MB'] = sum([v_file['size_mb'] for v_file in v_matching_files])
+            v_matches.append(v_table_data)
+        
+        # Add "zombie" files
+        v_zombies_files = [v_file_name for v_file_name, v_row in v_file_associated.items() if not v_row['associated']]
+        v_zombies_files_size_temp = [v_row['size_mb'] for v_file_name, v_row in v_file_associated.items() if not v_row['associated']]
+        v_zombies_files_size = sum(v_zombies_files_size_temp)
+        if v_zombies_files:
+            v_zombies_data = {col: '' for col in p_df.columns}
+            # add default values - For ENV and BUCKET set same values of last table inspected
+            v_zombies_data['ENV'] = v_env
+            v_zombies_data['OWNER'] = ''
+            v_zombies_data['TABLE_NAME'] = 'zombies'
+            v_zombies_data['PARTIONNED'] = 'NO'
+            v_zombies_data['TABLE_TYPE'] = ''
+            v_zombies_data['NUM_ROWS'] = 0
+            v_zombies_data['SIZE_MB'] = v_zombies_files_size
+            v_zombies_data['BUCKET'] = v_bucket
+            v_zombies_data['FILE_URI'] = ''
+            v_zombies_data['NUM_PARQUETS'] = len(v_zombies_files)
+            v_zombies_data['LIST_PARQUETS'] = v_zombies_files
+            v_matches.append(v_zombies_data)
+        
+        return pd.DataFrame(v_matches)
 
         
    
