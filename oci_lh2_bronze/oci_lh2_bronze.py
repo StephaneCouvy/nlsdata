@@ -351,11 +351,11 @@ class BronzeDbManager:
             self.post_proc_args = self.bronzeDb_Manager_config.get_options().PLSQL_post_proc_args.split(',')
         else:
             self.post_proc_args = []
+        
         self.update_lh2_tables_stats_proc = self.bronzeDb_Manager_config.get_options().PLSQL_update_lh2_tables_stats_proc
+        self.update_lh2_tables_stats_proc_args = [self.bronzeDbManager_env]
         if self.bronzeDb_Manager_config.get_options().PLSQL_update_lh2_tables_stats_proc_args:
-            self.update_lh2_tables_stats_proc_args = [self.bronzeDbManager_env].append(self.bronzeDb_Manager_config.get_options().PLSQL_update_lh2_tables_stats_proc_args.split(','))
-        else:
-            self.update_lh2_tables_stats_proc_args = []
+            self.update_lh2_tables_stats_proc_args = self.update_lh2_tables_stats_proc_args.append(self.bronzeDb_Manager_config.get_options().PLSQL_update_lh2_tables_stats_proc_args.split(','))
         self.lh2_tables_stats = self.bronzeDb_Manager_config.get_options().LH2_TABLES_STATS
         
          # Establish connection to Bronze schema database
@@ -431,11 +431,11 @@ class BronzeDbManager:
     def run_post_proc(self,pVerbose=None):
        return self.run_proc(self.post_proc,*self.post_proc_args,pVerbose=pVerbose,pProc_exe_context='GLOBAL')
    
-    def run_update_lh2_tables_stats_proc(self,pVerbose=None):
+    def update_lh2_tables_stats(self,pVerbose=None):
         self.run_proc(self.update_lh2_tables_stats_proc,*self.update_lh2_tables_stats_proc_args,pVerbose=pVerbose,pProc_exe_context='GLOBAL')
        
        # Execute a SQL query to fetch activ data from the table "LIST_DATASOURCE_LOADING_..." into a dataframe
-        v_cursor = self.get_db_connection.cursor()
+        v_cursor = self.get_db_connection().cursor()
         v_req = "select * from " + self.lh2_tables_stats + " WHERE ENV = \'"+ self.bronzeDbManager_env +"\' AND TABLE_TYPE like \'External%\' ORDER BY OWNER,TABLE_NAME"
         v_cursor.execute(v_req)
         self.df_tables_stats = pd.DataFrame(v_cursor.fetchall())
@@ -459,12 +459,14 @@ class BronzeDbManager:
    
         # iterate Buckets and check for each external tables associated to the bucket, which bucket files are associated to the table
         # Bucket files not associated to any table, will associated to a"zombies" table
+        v_df_updated_tables_stats = pd.DataFrame()
         for index,row in self.df_bronze_buckets_parquets.iterrows():
             v_bucket_name = row['BUCKET']
             v_df_bucket_tables = self.df_tables_stats[self.df_tables_stats['BUCKET'] == v_bucket_name]
-            v_updated_bucket_tables = self.__match_files_to_tables__(v_df_bucket_tables,row['BUCKET_LIST_PARQUETS'])
-        print(v_updated_bucket_tables)
-        return v_updated_bucket_tables
+            v_df_updated_bucket_tables = self.__match_files_to_tables__(v_df_bucket_tables,row['BUCKET_LIST_PARQUETS'])
+            print(v_df_updated_bucket_tables)
+            v_df_updated_tables_stats = pd.concat([v_df_updated_tables_stats,v_df_updated_bucket_tables], ignore_index=True)
+        return v_df_updated_tables_stats
             
     def __match_files_to_tables__(p_df, p_list_file_objects):
         # Function to match files to tables and handle "zombies"
