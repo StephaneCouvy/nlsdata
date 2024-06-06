@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 from nlsdata.oci_lh2_bronze.oci_lh2_bronze import *
 from nlsdata.oci_lh2_bronze.oci_lh2_bronze_file import *
-
+from nlstools.tool_kits import *
 
 # Define a class BronzeSourceBuilderFileEXCEL inheriting from BronzeSourceBuilderFile
 class BronzeSourceBuilderFileEXCEL(BronzeSourceBuilderFile):
@@ -24,6 +24,7 @@ class BronzeSourceBuilderFileEXCEL(BronzeSourceBuilderFile):
             _file = fileargs[0]
             # Defining the sheet_name as the second argument (src_table)
             _wrksheet = fileargs[1]
+            file_read_options = dict_convert_values_str_to_int(file_read_options)
             _df = pd.read_excel(_file, sheet_name=_wrksheet, **file_read_options)
             return _df
         else:

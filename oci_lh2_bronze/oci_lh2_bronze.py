@@ -455,7 +455,7 @@ class BronzeDbManager:
             v_bronze_bucket_proxy.set_bucket_by_name(v_bucket_name)
             v_bucket = v_bronze_bucket_proxy.get_bucket()
             v_bucket_list_objects = v_bucket.list_objects()
-            self.df_bronze_buckets_parquets.at[index, 'BUCKET_LIST_PARQUETS'] = [{'name':o.name,'size_mb':o.size/1024} for o in v_bucket_list_objects]
+            self.df_bronze_buckets_parquets.at[index, 'BUCKET_LIST_PARQUETS'] = [{'name':o.name,'size_mb':int(o.size or 0)/1024} for o in v_bucket_list_objects]
    
         # iterate Buckets and check for each external tables associated to the bucket, which bucket files are associated to the table
         # Bucket files not associated to any table, will associated to a"zombies" table
@@ -468,7 +468,7 @@ class BronzeDbManager:
             v_df_updated_tables_stats = pd.concat([v_df_updated_tables_stats,v_df_updated_bucket_tables], ignore_index=True)
         return v_df_updated_tables_stats
             
-    def __match_files_to_tables__(p_df, p_list_file_objects):
+    def __match_files_to_tables__(self,p_df, p_list_file_objects):
         # Function to match files to tables and handle "zombies"
         v_matches = []
         v_zombies = []
@@ -478,10 +478,10 @@ class BronzeDbManager:
 
         # Associate files with tables
         for _, v_row in p_df.iterrows():
+            v_table_data = v_row.to_dict()
             v_env = v_table_data['ENV']
             v_bucket = v_table_data['BUCKET']
-            v_table_data = v_row.to_dict()
-            v_uri_pattern = v_table_data['FILE_URI']
+            v_uri_pattern = re.search('o/(.*)',v_table_data['FILE_URI']).group(1)   
             v_matching_files = [v_file for v_file in p_list_file_objects if fnmatch.fnmatch(v_file['name'], v_uri_pattern)]
             
             for v_file in v_matching_files:
