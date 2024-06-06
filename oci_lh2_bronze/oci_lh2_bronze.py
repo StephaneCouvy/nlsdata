@@ -218,18 +218,18 @@ class BronzeExploit:
     def get_loading_tables(self):
         return (self.exploit_loading_table,self.exploit_running_loading_table)
 
-    def update_exploit(self,pSource:SourceProperties,PColumn_name, pValue):
+    def update_exploit(self,p_source:SourceProperties,p_column_name, pValue):
         request = ""
         try:
             vCursor = self.get_db_connection().cursor()
-            request = "UPDATE " + self.exploit_loading_table + " SET "+PColumn_name+" = :1 WHERE SRC_NAME = :2 AND SRC_ORIGIN_NAME = :3 AND SRC_OBJECT_NAME = :4"
+            request = "UPDATE " + self.exploit_loading_table + " SET "+p_column_name+" = :1 WHERE SRC_NAME = :2 AND SRC_ORIGIN_NAME = :3 AND SRC_OBJECT_NAME = :4"
 
             # update last date or creation date (depends on table)
-            message = "Updating {} = {} on table {}".format(PColumn_name,pValue,self.exploit_loading_table)
+            message = "Updating {} = {} on table {}".format(p_column_name,pValue,self.exploit_loading_table)
             if self.verbose:
                 self.verbose.log(datetime.now(tz=timezone.utc), "SET_LASTUPDATE", "START", log_message=message,
                             log_request=request)
-            bindvars = (pValue,pSource.name,pSource.schema,pSource.table)
+            bindvars = (pValue,p_source.name,p_source.schema,p_source.table)
             vCursor.execute(request,bindvars)
             self.get_db_connection().commit()
             vCursor.close()
@@ -347,10 +347,16 @@ class BronzeDbManager:
         else:
             self.pre_proc_args = []
         self.post_proc = self.bronzeDb_Manager_config.get_options().PLSQL_post_proc
-        if self.bronzeDb_Manager_config.get_options():
+        if self.bronzeDb_Manager_config.get_options().PLSQL_post_proc_args:
             self.post_proc_args = self.bronzeDb_Manager_config.get_options().PLSQL_post_proc_args.split(',')
         else:
             self.post_proc_args = []
+        
+        self.update_lh2_tables_stats_proc = self.bronzeDb_Manager_config.get_options().PLSQL_update_lh2_tables_stats_proc
+        self.update_lh2_tables_stats_proc_args = [self.bronzeDbManager_env]
+        if self.bronzeDb_Manager_config.get_options().PLSQL_update_lh2_tables_stats_proc_args:
+            self.update_lh2_tables_stats_proc_args = self.update_lh2_tables_stats_proc_args.append(self.bronzeDb_Manager_config.get_options().PLSQL_update_lh2_tables_stats_proc_args.split(','))
+        self.lh2_tables_stats = self.bronzeDb_Manager_config.get_options().LH2_TABLES_STATS
         
          # Establish connection to Bronze schema database
         self.bronzeDb_Manager_Database_param = get_parser_config_settings("database")(self.bronzeDb_Manager_config.get_configuration_file(),
@@ -419,12 +425,161 @@ class BronzeDbManager:
                 self.bronzeDb_Manager_logger.log(pError=vErr, pAction=vAction)
             return vReturn
                  
-    def run_pre_proc(self,pVerbose=None,*args):
+    def run_pre_proc(self,pVerbose=None):
         return self.run_proc(self.pre_proc,*self.pre_proc_args,pVerbose=pVerbose,pProc_exe_context='GLOBAL')
         
-    def run_post_proc(self,pVerbose=None,*args):
+    def run_post_proc(self,pVerbose=None):
        return self.run_proc(self.post_proc,*self.post_proc_args,pVerbose=pVerbose,pProc_exe_context='GLOBAL')
    
+    def update_lh2_tables_stats(self,pVerbose=None):
+        self.run_proc(self.update_lh2_tables_stats_proc,*self.update_lh2_tables_stats_proc_args,pVerbose=pVerbose,pProc_exe_context='GLOBAL')
+       
+       # Execute a SQL query to fetch activ data from the table "LIST_DATASOURCE_LOADING_..." into a dataframe
+        v_cursor = self.get_db_connection().cursor()
+        v_req = "select * from " + self.lh2_tables_stats + " WHERE ENV = \'"+ self.bronzeDbManager_env +"\' AND TABLE_TYPE like \'External%\' ORDER BY OWNER,TABLE_NAME"
+        v_cursor.execute(v_req)
+        self.df_tables_stats = pd.DataFrame(v_cursor.fetchall())
+        self.df_tables_stats.columns = [x[0] for x in v_cursor.description]
+        v_cursor.close()
+        # Get distinct bucket names from the column
+        v_bronze_buckets_array = self.df_tables_stats['BUCKET'].unique()
+        # Create a new DataFrame from the distinct values
+        self.df_bronze_buckets_parquets = pd.DataFrame(v_bronze_buckets_array,columns=['BUCKET'])
+        # Add a column 'LIST_PARQUETS' with default values (here, empty lists)
+        self.df_bronze_buckets_parquets['BUCKET_LIST_PARQUETS'] = [[] for _ in range(len(self.df_bronze_buckets_parquets))]
+
+        v_bronze_bucket_proxy = BronzeBucketProxy(self.bronzeDbManager_env,self.bronzeDb_Manager_config)
+        # Iterate over the 'BUCKET' column and change the value of 'LIST_PARQUETS' with list of objects name into each bucket
+        for index, row in self.df_bronze_buckets_parquets.iterrows():
+            v_bucket_name = row['BUCKET']
+            v_bronze_bucket_proxy.set_bucket_by_name(v_bucket_name)
+            v_bucket = v_bronze_bucket_proxy.get_bucket()
+            v_bucket_list_objects = v_bucket.list_objects()
+            self.df_bronze_buckets_parquets.at[index, 'BUCKET_LIST_PARQUETS'] = [{'name':o.name,'size_mb':int(o.size or 0)/1024} for o in v_bucket_list_objects]
+   
+        # iterate Buckets and check for each external tables associated to the bucket, which bucket files are associated to the table
+        # Bucket files not associated to any table, will associated to a"zombies" table
+        v_df_updated_tables_stats = pd.DataFrame()
+        for index,row in self.df_bronze_buckets_parquets.iterrows():
+            v_bucket_name = row['BUCKET']
+            v_df_bucket_tables = self.df_tables_stats[self.df_tables_stats['BUCKET'] == v_bucket_name]
+            v_df_updated_bucket_tables = self.__match_files_to_tables__(v_df_bucket_tables,row['BUCKET_LIST_PARQUETS'])
+            print(v_df_updated_bucket_tables)
+            v_df_updated_tables_stats = pd.concat([v_df_updated_tables_stats,v_df_updated_bucket_tables], ignore_index=True)
+        return v_df_updated_tables_stats
+            
+    def __match_files_to_tables__(self,p_df, p_list_file_objects):
+        # Function to match files to tables and handle "zombies"
+        v_matches = []
+        v_zombies = []
+        
+        # Dictionary to track file associations
+        v_file_associated = {v_file['name']: {'associated':False,'size_mb':v_file['size_mb']} for v_file in p_list_file_objects}
+
+        # Associate files with tables
+        for _, v_row in p_df.iterrows():
+            v_table_data = v_row.to_dict()
+            v_env = v_table_data['ENV']
+            v_bucket = v_table_data['BUCKET']
+            v_uri_pattern = re.search('o/(.*)',v_table_data['FILE_URI']).group(1)   
+            v_matching_files = [v_file for v_file in p_list_file_objects if fnmatch.fnmatch(v_file['name'], v_uri_pattern)]
+            
+            for v_file in v_matching_files:
+                v_file_associated[v_file['name']][0] = True
+                
+            # update list fo parquets, number of parquet files and total size of parquet files
+            v_table_data['LIST_PARQUETS'] = [v_file['name'] for v_file in v_matching_files]
+            v_table_data['NUM_PARQUETS'] = len(v_table_data['LIST_PARQUETS'])
+            v_table_data['SIZE_MB'] = sum([v_file['size_mb'] for v_file in v_matching_files])
+            v_matches.append(v_table_data)
+        
+        # Add "zombie" files
+        v_zombies_files = [v_file_name for v_file_name, v_row in v_file_associated.items() if not v_row['associated']]
+        v_zombies_files_size_temp = [v_row['size_mb'] for v_file_name, v_row in v_file_associated.items() if not v_row['associated']]
+        v_zombies_files_size = sum(v_zombies_files_size_temp)
+        if v_zombies_files:
+            v_zombies_data = {col: '' for col in p_df.columns}
+            # add default values - For ENV and BUCKET set same values of last table inspected
+            v_zombies_data['ENV'] = v_env
+            v_zombies_data['OWNER'] = ''
+            v_zombies_data['TABLE_NAME'] = 'zombies'
+            v_zombies_data['PARTIONNED'] = 'NO'
+            v_zombies_data['TABLE_TYPE'] = ''
+            v_zombies_data['NUM_ROWS'] = 0
+            v_zombies_data['SIZE_MB'] = v_zombies_files_size
+            v_zombies_data['BUCKET'] = v_bucket
+            v_zombies_data['FILE_URI'] = ''
+            v_zombies_data['NUM_PARQUETS'] = len(v_zombies_files)
+            v_zombies_data['LIST_PARQUETS'] = v_zombies_files
+            v_matches.append(v_zombies_data)
+        
+        return pd.DataFrame(v_matches)
+
+        
+   
+class BronzeBucketProxy:
+    # Class to provide a substitute to manage bronze bucket.
+    # add actions to get settings informations to connect to bronze buckets (DEBUG, DEV, STG, PRD)
+    # create OCIBUcket object to connect on
+    def __init__(self,p_env,p_bronze_config:BronzeConfig):
+        self.env = p_env 
+        self.bronze_config = p_bronze_config
+        if self.env == "DEBUG":
+            self.debug = True
+            self.oci_settings = get_parser_config_settings("filestorage")(self.bronze_config.get_configuration_file(),"BRONZE_BUCKET_DEBUG")
+        else:
+            self.debug = False
+            self.oci_settings = get_parser_config_settings("filestorage")(self.bronze_config.get_configuration_file(),"BRONZE_BUCKET")
+        self.bronze_bucket_settings = None
+        self.bucket = None
+            
+    def set_bucket_by_extension(self,p_bucket_extension):
+        # Define bucket name
+        v_bucket_name = None
+        if not self.debug:
+            v_bucket_name = self.bronze_config.get_oci_settings().storage_name + "-" + self.env + "-" + p_bucket_extension
+        self.set_bucket_by_name(v_bucket_name)
+            
+    def set_bucket_by_name(self,p_bucket_name):
+        if not self.debug:
+            self.bronze_bucket_settings=self.bronze_config.get_oci_settings()._replace(storage_name=p_bucket_name)
+        else:
+            self.bronze_bucket_settings = type(self.bronze_config.get_oci_settings())._make(self.bronze_config.get_oci_settings())
+            
+    def connect(self):
+        if self.get_bronze_bucket_settings():
+            self.bucket = FILESTORAGEFACTORY.create_instance(self.get_bronze_bucket_settings().filestorage_wrapper,**self.get_bronze_bucket_settings()._asdict())
+            return self.bucket
+        else:
+            self.bucket = None
+            return None
+    
+    def get_bucket(self):
+        if not self.bucket:
+            self.connect()
+        return self.bucket
+    
+    def get_bronze_bucket_settings(self):
+        return self.bronze_bucket_settings
+    
+    def get_bucket_name(self):
+        if self.get_bronze_bucket_settings():
+            return self.bronze_bucket_settings.storage_name
+        else:
+            return None
+    
+    def get_oci_objectstorage_url(self):
+        if self.get_bronze_bucket_settings():
+            return self.bronze_bucket_settings.url
+        else:
+            return None
+    
+    def get_oci_adw_credential(self):
+        if self.get_bronze_bucket_settings():
+            return self.bronze_bucket_settings.setting2
+        else:
+            return None
+        
 class BronzeSourceBuilder:
     # ENV : environement DEV, STG, PRD
     # config_file : dictionary json config file with connection parameters
@@ -474,8 +629,9 @@ class BronzeSourceBuilder:
         # if debug = True then we use a dedicated bucket to store parquet files. Bucket name identified into json config
         self.debug = self.bronze_config.isdebugmode()
 
-        # set bronze bucket settings (name, url, credentials)
-        self.__init_bronze_bucket_settings__()
+        # set bronze bucket settings 
+        self.bronze_bucket_proxy = BronzeBucketProxy(self.env,self.bronze_config)
+        self.bronze_bucket_proxy.set_bucket_by_extension(p_bucket_extension=self.bronze_source_properties.name)
          
         # To be set into subclass
         self.source_db = None
@@ -503,7 +659,7 @@ class BronzeSourceBuilder:
         self.logger.link_to_bronze_source(self)
 
     def __init_bronze_bucket_settings__(self):
-        self.__set_bronze_bucket_settings__(self.bronze_source_properties.name)
+        self.__set_bronze_bucket_settings__(bucket_extension=self.bronze_source_properties.name)
         
     def __set_local_workgingdir__(self, path):
         # Create a temporary directory if it doesn't exist
@@ -541,7 +697,8 @@ class BronzeSourceBuilder:
         # to avoid remplace existing parquet files
         idx = 0
         try:
-            bucket = FILESTORAGEFACTORY.create_instance(self.get_bronze_bucket_settings().filestorage_wrapper,**self.get_bronze_bucket_settings()._asdict())
+            #bucket = FILESTORAGEFACTORY.create_instance(self.get_bronze_bucket_settings().filestorage_wrapper,**self.get_bronze_bucket_settings()._asdict())
+            bucket = self.bronze_bucket_proxy.get_bucket()
             what_to_search = self.bucket_file_path+self.parquet_file_name_template
             list_buckets_files = [obj.name for obj in bucket.list_objects(what_to_search)]
             if list_buckets_files:
@@ -686,14 +843,13 @@ class BronzeSourceBuilder:
             if self.bronze_source_properties.incremental:
                 # Create external part table parsing parquet files from bucket root (for incremental mode)
                 root_path = self.bucket_file_path.split("/")[0]+"/"
-                create = 'BEGIN DBMS_CLOUD.CREATE_EXTERNAL_PART_TABLE(table_name =>\'' + vTable + '\',credential_name =>\'' + self.oci_adw_credential + '\', file_uri_list =>\'' + self.oci_objectstorage_url + self.bucketname + '/o/'+root_path+'*' + self.parquet_file_name_template + '*.parquet\', format => \'{"type":"parquet", "schema": "first","partition_columns":[{"name":"fetch_year","type":"varchar2(100)"},{"name":"fetch_month","type":"varchar2(100)"},{"name":"fetch_day","type":"varchar2(100)"}]}\'); END;'
+                create = 'BEGIN DBMS_CLOUD.CREATE_EXTERNAL_PART_TABLE(table_name =>\'' + vTable + '\',credential_name =>\'' + self.bronze_bucket_proxy.get_oci_adw_credential() + '\', file_uri_list =>\'' + self.bronze_bucket_proxy.get_oci_objectstorage_url() + self.bronze_bucket_proxy.get_bucket_name() + '/o/'+root_path+'*' + self.parquet_file_name_template + '*.parquet\', format => \'{"type":"parquet", "schema": "first","partition_columns":[{"name":"fetch_year","type":"varchar2(100)"},{"name":"fetch_month","type":"varchar2(100)"},{"name":"fetch_day","type":"varchar2(100)"}]}\'); END;'
                 # create += 'EXECUTE IMMEDIATE '+ '\'CREATE INDEX fetch_date ON ' + table + '(fetch_year,fetch_month,fetch_date)\'; END;'
                 # not supported for external table
             else:
                 # Create external table linked to ONE parquet file (for non incremental mode)
                 root_path = self.bucket_file_path
-                #create = 'BEGIN DBMS_CLOUD.CREATE_EXTERNAL_TABLE(table_name =>\'' + vTable + '\',credential_name =>\'' + self.env + '_CRED_NAME\', file_uri_list =>\'https://objectstorage.eu-frankfurt-1.oraclecloud.com/n/frysfb5gvbrr/b/' + self.bucketname + '/o/'+root_path+ self.parquet_file_name_template + '.parquet\', format => \'{"type":"parquet", "schema": "first"}\'); END;'
-                create = 'BEGIN DBMS_CLOUD.CREATE_EXTERNAL_TABLE(table_name =>\'' + vTable + '\',credential_name =>\'' + self.oci_adw_credential + '\', file_uri_list =>\'' + self.oci_objectstorage_url + self.bucketname + '/o/' + root_path + self.parquet_file_name_template + '.parquet\', format => \'{"type":"parquet", "schema": "first"}\'); END;'
+                create = 'BEGIN DBMS_CLOUD.CREATE_EXTERNAL_TABLE(table_name =>\'' + vTable + '\',credential_name =>\'' + self.bronze_bucket_proxy.get_oci_adw_credential() + '\', file_uri_list =>\'' + self.bronze_bucket_proxy.get_oci_objectstorage_url() + self.bronze_bucket_proxy.get_bucket_name() + '/o/' + root_path + self.parquet_file_name_template + '.parquet\', format => \'{"type":"parquet", "schema": "first"}\'); END;'
             if verbose:
                 message = "Creating table {} : {}".format(vTable,create)
                 verbose.log(datetime.now(tz=timezone.utc), "CREATE_TABLE", "START", log_message=message)
@@ -752,7 +908,7 @@ class BronzeSourceBuilder:
         return self.bronze_source_properties
 
     def get_bronze_properties(self):
-        return BronzeProperties(self.env,self.bronze_schema,self.bronze_table,self.bucketname,self.bucket_file_path,self.parquet_file_name_template)
+        return BronzeProperties(self.env,self.bronze_schema,self.bronze_table,self.bronze_bucket_proxy.get_bucket_name(),self.bucket_file_path,self.parquet_file_name_template)
 
     def get_logger(self):
         return self.logger
@@ -792,11 +948,11 @@ class BronzeSourceBuilder:
             self.parquet_file_list_tosend = self.parquet_file_list
 
         try:
-            #bucket = FILESTORAGEFACTORY.create_instance(self.bronze_config.get_oci_settings().filestorage_wrapper,self.bucketname, forcecreate=True,compartment_id=oci_compartment_id,file_location=oci_config_path, oci_profile=oci_config_profile)
-            bucket = FILESTORAGEFACTORY.create_instance(self.get_bronze_bucket_settings().filestorage_wrapper,**self.get_bronze_bucket_settings()._asdict())
+            #bucket = FILESTORAGEFACTORY.create_instance(self.get_bronze_bucket_settings().filestorage_wrapper,**self.get_bronze_bucket_settings()._asdict())
+            bucket = self.bronze_bucket_proxy.get_bucket()
         except Exception as err:
             self.__update_sent_parquets_stats()
-            vError = "ERROR create access to bucket {0}".format(self.bucketname)
+            vError = "ERROR create access to bucket {0}".format(self.bronze_bucket_proxy.get_bucket_name())
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "BUCKET_ACCESS", vError, log_message=str(err))
             self.logger.log(pError=err, pAction=vError)
@@ -807,13 +963,13 @@ class BronzeSourceBuilder:
                     bucket_file_name = self.bucket_file_path +  p["file_name"]
                     source_file = p["source_file"]
 
-                    message = "Uploading parquet from {0} into bucket {1}, {2}".format(source_file,self.bucketname,bucket_file_name)
+                    message = "Uploading parquet from {0} into bucket {1}, {2}".format(source_file,self.bronze_bucket_proxy.get_bucket_name(),bucket_file_name)
                     if verbose:
                         verbose.log(datetime.now(tz=timezone.utc),"UPLOAD_PARQUET","START",log_message=message)
                     bucket.put_file(bucket_file_name, source_file)
         except Exception as err:
             self.__update_sent_parquets_stats()
-            vError = "ERROR Uplaoding parquet file {0} into bucket {1}, {2}".format(source_file,self.bucketname,bucket_file_name)
+            vError = "ERROR Uplaoding parquet file {0} into bucket {1}, {2}".format(source_file,self.bronze_bucket_proxy.get_bucket_name(),bucket_file_name)
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "UPLOAD_PARQUET", vError, log_message=str(err))
             self.logger.log(pError=err, pAction=vError)
