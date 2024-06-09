@@ -131,7 +131,7 @@ class BronzeExploit:
                 self.verbose.log(datetime.now(tz=timezone.utc), "EXPLOIT", "START", log_message=message)
 
             if optional_args[EXPLOIT_ARG_RELOAD_ON_ERROR_INTERVAL] and optional_args[EXPLOIT_ARG_LOG_TABLE] :
-                vDmbs_output = self.get_db().execute_proc('ADMIN.DUPLICATE_TABLE', *[self.get_db_parameters().p_username, self.exploit_loading_table,self.get_db_parameters().p_username,self.exploit_running_loading_table,False])
+                vDmbs_output = self.get_db().execute_proc('LH2_ADMIN_EXPLOIT_PKG.DUPLICATE_TABLE_PROC', *[self.exploit_loading_table,self.exploit_running_loading_table,False])
 
                 vInterval_start = optional_args[EXPLOIT_ARG_RELOAD_ON_ERROR_INTERVAL][0].strftime("%Y-%m-%d %H:%M:%S")
                 # If end date of intervant not provided, then take Now date
@@ -147,7 +147,7 @@ class BronzeExploit:
                 vDmbs_output = self.get_db().execute_proc('CREATE_LH2_DATASOURCE_LOADING_ON_ERROR',*[self.exploit_loading_table,self.exploit_running_loading_table,vLog_table,vInterval_start,vInterval_end])
                 self.get_db_connection().commit()
             else:
-                vDmbs_output = self.get_db().execute_proc('ADMIN.DUPLICATE_TABLE', *[self.get_db_parameters().p_username, self.exploit_loading_table,self.get_db_parameters().p_username,self.exploit_running_loading_table,True])
+                vDmbs_output = self.get_db().execute_proc('LH2_ADMIN_EXPLOIT_PKG.DUPLICATE_TABLE_PROC', *[self.exploit_loading_table,self.exploit_running_loading_table,True])
                 self.get_db_connection().commit()
             if not self.get_db().last_execute_proc_completion():
                 message = "ERROR, Create running Exploit table  {}".format(self.exploit_running_loading_table)
@@ -180,7 +180,7 @@ class BronzeExploit:
 
     def __del__(self):
         if not self.not_drop_running_loading_table:
-            self.get_db().execute_proc('ADMIN.DROP_TABLE', *[self.get_db_parameters().p_username,self.exploit_running_loading_table])
+            self.get_db().execute_proc('LH2_ADMIN_EXPLOIT_PKG.DROP_TABLE_PROC', *[self.exploit_running_loading_table])
             message = "Deleting temporary Exploit table  {}".format(self.exploit_running_loading_table)
             message += "\n{}".format(self.get_db().last_execute_proc_output())
             if self.verbose:
@@ -527,12 +527,12 @@ class BronzeDbManager:
             
             v_bronze_bucket_proxy = BronzeBucketProxy(self.bronzeDbManager_env,self.bronzeDb_Manager_config)
             # Iterate over the 'BUCKET' column and change the value of 'LIST_PARQUETS' with list of objects name into each bucket
-            for index, row in self.df_bronze_buckets_parquets.iterrows():
-                v_bucket_name = row['BUCKET']
+            for v_index, v_row in self.df_bronze_buckets_parquets.iterrows():
+                v_bucket_name = v_row['BUCKET']
                 v_bronze_bucket_proxy.set_bucket_by_name(v_bucket_name)
                 v_bucket = v_bronze_bucket_proxy.get_bucket()
                 v_bucket_list_objects = v_bucket.list_objects()
-                self.df_bronze_buckets_parquets.at[index, 'BUCKET_LIST_PARQUETS'] = [{'name':o.name,'size_mb':int(o.size or 0)/1024} for o in v_bucket_list_objects]
+                self.df_bronze_buckets_parquets.at[v_index, 'BUCKET_LIST_PARQUETS'] = [{'name':o.name,'size_mb':int(o.size or 0)/1024} for o in v_bucket_list_objects]
     
             v_message = "Bucket files inventory done {}".format(str(self.df_bronze_buckets_parquets))
             if p_verbose:
@@ -541,15 +541,15 @@ class BronzeDbManager:
             # iterate Buckets and check for each external tables associated to the bucket, which bucket files are associated to the table
             # Bucket files not associated to any table, will associated to a"zombies" table        
             v_df_updated_tables_stats = pd.DataFrame()
-            for index,row in self.df_bronze_buckets_parquets.iterrows():
-                v_bucket_name = row['BUCKET']
+            for v_index,v_row in self.df_bronze_buckets_parquets.iterrows():
+                v_bucket_name = v_row['BUCKET']
                 v_df_bucket_tables = v_df_lh2_tables[v_df_lh2_tables['BUCKET'] == v_bucket_name]
                 v_message = "Check files of bucket {0} are associated to external tables {1}".format(v_bucket_name,str(v_df_bucket_tables))
                 if p_verbose:
                     p_verbose.log(datetime.now(tz=timezone.utc),"GATHER_BRONZE_STATS","RUNNING",log_message=v_message)
-                v_df_updated_bucket_tables = __match_files_to_tables__(v_df_bucket_tables,row['BUCKET_LIST_PARQUETS'])
+                v_df_updated_bucket_tables = __match_files_to_tables__(v_df_bucket_tables,v_row['BUCKET_LIST_PARQUETS'])
                 v_df_updated_tables_stats = pd.concat([v_df_updated_tables_stats,v_df_updated_bucket_tables], ignore_index=True)
-            self.df_tables_stats = v_df_updated_tables_stats
+            self.df_tables_stats = v_df_updated_tables_stats.fillna(0)
             v_message = "Files are associated to external tables {}".format(str(self.df_tables_stats))
             if p_verbose:
                 p_verbose.log(datetime.now(tz=timezone.utc),"GATHER_BRONZE_STATS","END",log_message=v_message)
@@ -568,19 +568,20 @@ class BronzeDbManager:
             return None        
     
     def update_lh2_tables_stats(self,p_verbose=None):
-        if not self.df_tables_stats:
+        if self.df_tables_stats is None:
             return False
         try:
             v_message = "Updating external tables stats of bronze layer {} into table {}:".format(self.bronzeDbManager_env,self.lh2_tables_tablename)
             if p_verbose:
                 p_verbose.log(datetime.now(tz=timezone.utc),"UPDATE_BRONZE_STATS","RUNNING",log_message=v_message)
             v_cursor = self.get_db_connection().cursor()
-            for index, row in self.df_tables_stats.iterrows():
-                v_sql = "UPDATE " + self.lh2_tables_tablename + " SET NUM_ROWS = :1, SIZE_MB = :2, NUM_PARQUETS = :3, LIST_PARQUETS = :4 WHERE LIST_PARQUETS = :5 AND LIST_PARQUETS = :6"
+            for v_index, v_row in self.df_tables_stats.iterrows():
+                v_sql = "UPDATE " + self.lh2_tables_tablename + " SET NUM_ROWS = :1, SIZE_MB = :2, NUM_PARQUETS = :3, LIST_PARQUETS = :4 WHERE OWNER = :5 AND TABLE_NAME = :6"
                 v_message = "Updating {}".format(v_sql)
                 #if p_verbose:
                     #p_verbose.log(datetime.now(tz=timezone.utc),"GATHER_BRONZE_STATS","RUNNING",log_message=v_message)
-                v_cursor.execute(v_sql, (row['NUM_ROWS'], row['SIZE_MB'], row['NUM_PARQUETS'],row['LIST_PARQUETS'], row['LIST_PARQUETS'], row['LIST_PARQUETS']))
+                v_bindvars = (int(v_row['NUM_ROWS'] or 0), int(v_row['SIZE_MB'] or 0), int(v_row['NUM_PARQUETS'] or 0),str(v_row['LIST_PARQUETS']), v_row['OWNER'], v_row['TABLE_NAME'])
+                v_cursor.execute(v_sql,v_bindvars )
 
             self.get_db_connection().commit()
             v_cursor.close()
@@ -929,7 +930,7 @@ class BronzeSourceBuilder:
                 message = "Dropping table {}.{} ".format(self.get_bronzedb_manager().get_db_parameters().p_username,vTable)
                 verbose.log(datetime.now(tz=timezone.utc), "DROP_TABLE", "START", log_message=message)
             #cursor.execute(drop)
-            vResult_run_proc = self.get_bronzedb_manager().run_proc('ADMIN.DROP_TABLE',*[self.get_bronzedb_manager().get_db_parameters().p_username,vTable],p_verbose=verbose,pProc_exe_context=vTable)
+            vResult_run_proc = self.get_bronzedb_manager().run_proc('LH2_ADMIN_BRONZE_PKG.DROP_TABLE_PROC',*[vTable],p_verbose=verbose,pProc_exe_context=vTable)
             if not vResult_run_proc:
                 raise Exception("ERROR dropping table {}".format(vTable))
             
@@ -952,7 +953,7 @@ class BronzeSourceBuilder:
             if verbose:
                 message = "Altering table columns type {}.{}".format(self.get_bronzedb_manager().get_db_parameters().p_username,vTable)
                 verbose.log(datetime.now(tz=timezone.utc), "ALTER_TABLE", "START", log_message=message)
-            vResult_run_proc = self.get_bronzedb_manager().run_proc('ADMIN.ALTER_TABLE_COLUMN_TYPE',*[self.get_bronzedb_manager().get_db_parameters().p_username,vTable,'BINARY_DOUBLE','NUMBER(38,10)'],p_verbose=verbose,pProc_exe_context=vTable)
+            vResult_run_proc = self.get_bronzedb_manager().run_proc('LH2_ADMIN_BRONZE_PKG.ALTER_TABLE_COLUMN_TYPE_PROC',*[vTable,'BINARY_DOUBLE','NUMBER(38,10)'],p_verbose=verbose,pProc_exe_context=vTable)
             if not vResult_run_proc:
                 raise Exception("ERROR altering table columns type {}.{}".format(self.get_bronzedb_manager().get_db_parameters().p_username,vTable))
             cursor.close()
