@@ -144,7 +144,7 @@ class BronzeExploit:
                 message = "Populate Exploit table {} with previous error tables from log table {} on interval {}->{}".format(self.exploit_running_loading_table,vLog_table,vInterval_start,vInterval_end)
                 if self.verbose:
                     self.verbose.log(datetime.now(tz=timezone.utc), "EXPLOIT", "START", log_message=message)
-                vDmbs_output = self.get_db().execute_proc('CREATE_LH2_DATASOURCE_LOADING_ON_ERROR',*[self.exploit_loading_table,self.exploit_running_loading_table,vLog_table,vInterval_start,vInterval_end])
+                vDmbs_output = self.get_db().execute_proc('LH2_ADMIN_EXPLOIT_PKG.CREATE_LH2_DATASOURCE_LOADING_ON_ERROR',*[self.exploit_loading_table,self.exploit_running_loading_table,vLog_table,vInterval_start,vInterval_end])
                 self.get_db_connection().commit()
             else:
                 vDmbs_output = self.get_db().execute_proc('LH2_ADMIN_EXPLOIT_PKG.DUPLICATE_TABLE_PROC', *[self.exploit_loading_table,self.exploit_running_loading_table,True])
