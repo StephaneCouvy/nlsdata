@@ -468,7 +468,7 @@ class BronzeDbManager:
                 v_matching_files = [v_file for v_file in p_list_file_objects if fnmatch.fnmatch(v_file['name'], v_uri_pattern)]
                 
                 for v_file in v_matching_files:
-                    v_file_associated[v_file['name']][0] = True
+                    v_file_associated[v_file['name']]['associated'] = True
                     
                 # update list fo parquets, number of parquet files and total size of parquet files
                 v_table_data['LIST_PARQUETS'] = [v_file['name'] for v_file in v_matching_files]
@@ -527,7 +527,7 @@ class BronzeDbManager:
                 v_message = "Count rows for  list of external tables of bronze layer {}".format(self.bronzeDbManager_env)
                 if p_verbose:
                     p_verbose.log(datetime.now(tz=timezone.utc),"GATHER_BRONZE_STATS","RUNNING",log_message=v_message)
-                for _v_index, v_row in v_df_lh2_tables.iterrows():
+                for v_index, v_row in v_df_lh2_tables.iterrows():
                     v_table_data = v_row.to_dict()
                     v_table_name = v_table_data['TABLE_NAME']
                     v_num_rows = self.get_db().get_num_rows()
@@ -559,7 +559,7 @@ class BronzeDbManager:
                     p_verbose.log(datetime.now(tz=timezone.utc),"GATHER_BRONZE_STATS","RUNNING",log_message=v_message)
                     
             # iterate Buckets and check for each external tables associated to the bucket, which bucket files are associated to the table
-            # Bucket files not associated to any table, will associated to a"zombies" table        
+            # Bucket files not associated to any table, will associated to a "zombies" table        
             v_df_updated_tables_stats = pd.DataFrame()
             for v_index,v_row in self.df_bronze_buckets_parquets.iterrows():
                 v_bucket_name = v_row['BUCKET']
@@ -593,14 +593,14 @@ class BronzeDbManager:
         try:
             v_message = "Updating external tables stats of bronze layer {} into table {}:".format(self.bronzeDbManager_env,self.lh2_tables_tablename)
             if p_verbose:
-                p_verbose.log(datetime.now(tz=timezone.utc),"UPDATE_BRONZE_STATS","RUNNING",log_message=v_message)
+                p_verbose.log(datetime.now(tz=timezone.utc),"UPDATE_BRONZE_STATS","START",log_message=v_message)
             v_cursor = self.get_db_connection().cursor()
             for v_index, v_row in self.df_tables_stats.iterrows():
                 v_sql = "UPDATE " + self.lh2_tables_tablename + " SET NUM_ROWS = :1, SIZE_MB = :2, NUM_PARQUETS = :3, LIST_PARQUETS = :4 WHERE OWNER = :5 AND TABLE_NAME = :6"
-                v_message = "Updating {}".format(v_sql)
-                #if p_verbose:
-                    #p_verbose.log(datetime.now(tz=timezone.utc),"GATHER_BRONZE_STATS","RUNNING",log_message=v_message)
                 v_bindvars = (int(v_row['NUM_ROWS'] or 0), int(v_row['SIZE_MB'] or 0), int(v_row['NUM_PARQUETS'] or 0),str(v_row['LIST_PARQUETS']), v_row['OWNER'], v_row['TABLE_NAME'])
+                v_message = "Updating {0}.{1}, num_rows {2}, size_mb {3}, num_parquets {4}".format(v_row['OWNER'], v_row['TABLE_NAME'],int(v_row['NUM_ROWS'] or 0), int(v_row['SIZE_MB'] or 0), int(v_row['NUM_PARQUETS'] or 0))
+                if p_verbose:
+                    p_verbose.log(datetime.now(tz=timezone.utc),"UPDATE_BRONZE_STATS","RUNNING",log_message=v_message)
                 v_cursor.execute(v_sql,v_bindvars )
 
             self.get_db_connection().commit()
