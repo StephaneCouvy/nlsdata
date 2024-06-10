@@ -294,7 +294,7 @@ class BronzeLogger():
     def get_log_table(self):
         return self.logger_table_name
 
-    def log(self,pAction="SUCCESS",pError=None):
+    def log(self,pAction="COMPLETED",pError=None):
         vAction = pAction
         if pError:
             error_type = type(pError).__name__
@@ -401,40 +401,41 @@ class BronzeDbManager:
         last_date = self.get_db().get_table_max_column(pTable_name, pSrc_date_criteria)
         return last_date
     
-    def run_proc(self,pProc_name='',/,*args,p_verbose=None,pProc_exe_context='GLOBAL'):
-        vStart = datetime.now()
-        vReturn = True
+    def run_proc(self,p_proc_name='',/,*args,p_verbose=None,p_proc_exe_context='GLOBAL'):
+        v_start = datetime.now()
+        v_return = True
         try:
-            if pProc_name and self.get_db():
-                vDmbs_output = self.get_db().execute_proc(pProc_name,*args)
-                vLog_message = vDmbs_output
+            if p_proc_name and self.get_db():
+                v_dmbs_output = self.get_db().execute_proc(p_proc_name,*args)
+                v_log_message = v_dmbs_output
                 if self.get_db().last_execute_proc_completion():
-                    vAction = "SUCCESS"
-                    vErr = None
-                    vReturn = True
+                    v_action = "COMPLETED"
+                    v_err = None
+                    v_return = True
                 else:
-                    vAction = "ERROR"
-                    vErr = Exception("Error during execution of procedure {} with {}".format(pProc_name,args))
-                    vReturn = False
-        except Exception as vErr:
-            vAction = "ERROR calling Procedure {} with {}".format(pProc_name,args)
-            vLog_message = 'Oracle DB error :{}'.format(str(vErr))
-            vReturn = False
+                    v_action = "ERROR"
+                    v_err = Exception("Error during execution of procedure {} with {}".format(p_proc_name,args))
+                    v_return = False
+        except Exception as err:
+            v_err = err
+            v_action = "ERROR calling Procedure {} with {}".format(p_proc_name,args)
+            v_log_message = 'Oracle DB error :{}'.format(str(v_err))
+            v_return = False
         finally:
-            vDuration = datetime.now() - vStart
-            self.bronzeDb_Manager_logger.set_logger_properties(self.get_bronze_database_name(),pProc_name,pProc_exe_context,"args:{}".format(str(args)),vDuration)
+            v_duration = datetime.now() - v_start
+            self.bronzeDb_Manager_logger.set_logger_properties(self.get_bronze_database_name(),p_proc_name,p_proc_exe_context,"args:{}".format(str(args)),v_duration)
             
-            if pProc_name and self.get_db():
+            if p_proc_name and self.get_db():
                 if p_verbose:
-                    p_verbose.log(datetime.now(tz=timezone.utc), "BRONZE_PROC", vAction, log_message=vLog_message)
-                self.bronzeDb_Manager_logger.log(pError=vErr, pAction=vAction)
-            return vReturn
+                    p_verbose.log(datetime.now(tz=timezone.utc), "BRONZE_PROC", v_action, log_message=v_log_message)
+                self.bronzeDb_Manager_logger.log(pError=v_err, pAction=v_action)
+            return v_return
                  
     def run_pre_proc(self,p_verbose=None):
-        return self.run_proc(self.pre_proc,*self.pre_proc_args,p_verbose=p_verbose,pProc_exe_context='GLOBAL')
+        return self.run_proc(self.pre_proc,*self.pre_proc_args,p_verbose=p_verbose,p_proc_exe_context='GLOBAL')
         
     def run_post_proc(self,p_verbose=None):
-       return self.run_proc(self.post_proc,*self.post_proc_args,p_verbose=p_verbose,pProc_exe_context='GLOBAL')
+       return self.run_proc(self.post_proc,*self.post_proc_args,p_verbose=p_verbose,p_proc_exe_context='GLOBAL')
    
     def get_lh2_tables_stats(self):
         return self.df_tables_stats
@@ -497,7 +498,7 @@ class BronzeDbManager:
             v_message = "Gather Bronze tables stats with PL SQL Proc {0}({1})".format(self.gather_lh2_tables_stats_proc,self.gather_lh2_tables_stats_proc_args)
             if p_verbose:
                     p_verbose.log(datetime.now(tz=timezone.utc),"GATHER_BRONZE_STATS","START",log_message=v_message)
-            v_result_run_proc = self.run_proc(self.gather_lh2_tables_stats_proc,*self.gather_lh2_tables_stats_proc_args,p_verbose=p_verbose,pProc_exe_context='GLOBAL')
+            v_result_run_proc = self.run_proc(self.gather_lh2_tables_stats_proc,*self.gather_lh2_tables_stats_proc_args,p_verbose=p_verbose,p_proc_exe_context='GLOBAL')
             if not v_result_run_proc:
                 raise Exception("ERROR, Executing Procedure {0}({1})".format(self.gather_lh2_tables_stats_proc,self.gather_lh2_tables_stats_proc_args))
             
@@ -764,7 +765,7 @@ class BronzeSourceBuilder:
         # Set Bronze table settings : table name, bucket path to add parquet files, get index to restart parquet files interation
         self.__set_bronze_table_settings__()
         
-        # setup logger to log events errors and success into LOG_ table
+        # setup logger to log events errors and COMPLETED into LOG_ table
         self.logger = pLogger
         self.logger.link_to_bronze_source(self)
         
@@ -930,7 +931,7 @@ class BronzeSourceBuilder:
                 message = "Dropping table {}.{} ".format(self.get_bronzedb_manager().get_db_parameters().p_username,vTable)
                 verbose.log(datetime.now(tz=timezone.utc), "DROP_TABLE", "START", log_message=message)
             #cursor.execute(drop)
-            vResult_run_proc = self.get_bronzedb_manager().run_proc('LH2_ADMIN_BRONZE_PKG.DROP_TABLE_PROC',*[vTable],p_verbose=verbose,pProc_exe_context=vTable)
+            vResult_run_proc = self.get_bronzedb_manager().run_proc('LH2_ADMIN_BRONZE_PKG.DROP_TABLE_PROC',*[vTable],p_verbose=verbose,p_proc_exe_context=vTable)
             if not vResult_run_proc:
                 raise Exception("ERROR dropping table {}".format(vTable))
             
@@ -953,7 +954,7 @@ class BronzeSourceBuilder:
             if verbose:
                 message = "Altering table columns type {}.{}".format(self.get_bronzedb_manager().get_db_parameters().p_username,vTable)
                 verbose.log(datetime.now(tz=timezone.utc), "ALTER_TABLE", "START", log_message=message)
-            vResult_run_proc = self.get_bronzedb_manager().run_proc('LH2_ADMIN_BRONZE_PKG.ALTER_TABLE_COLUMN_TYPE_PROC',*[vTable,'BINARY_DOUBLE','NUMBER(38,10)'],p_verbose=verbose,pProc_exe_context=vTable)
+            vResult_run_proc = self.get_bronzedb_manager().run_proc('LH2_ADMIN_BRONZE_PKG.ALTER_TABLE_COLUMN_TYPE_PROC',*[vTable,'BINARY_DOUBLE','NUMBER(38,10)'],p_verbose=verbose,p_proc_exe_context=vTable)
             if not vResult_run_proc:
                 raise Exception("ERROR altering table columns type {}.{}".format(self.get_bronzedb_manager().get_db_parameters().p_username,vTable))
             cursor.close()
@@ -1142,7 +1143,7 @@ class BronzeGenerator:
             vPost_proc_param = self.__bronzesourcebuilder__.get_post_procedure_parameters()
             if vPost_proc_param:
                 vBronze_table = self.__bronzesourcebuilder__.get_bronze_properties.table
-                vResult_post_proc = self.__bronzesourcebuilder__.get_bronzedb_manager().run_proc(vPost_proc_param[0],*vPost_proc_param[1],p_verbose=verbose,pProc_exe_context=vBronze_table)
+                vResult_post_proc = self.__bronzesourcebuilder__.get_bronzedb_manager().run_proc(vPost_proc_param[0],*vPost_proc_param[1],p_verbose=verbose,p_proc_exe_context=vBronze_table)
                 if not vResult_post_proc:
                     break
             
