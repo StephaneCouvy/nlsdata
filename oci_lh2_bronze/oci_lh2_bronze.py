@@ -8,13 +8,14 @@ from nlstools.config_settings import *
 from nlstools.tool_kits import *
 from nlsdb.dbwrapper_factory import *
 from nlsfilestorage.filestorage_wrapper_factory import *
+from nlsfilestorage.filestorage_wrapper.abs_filestorage import *
 from nlsdata.nlsdata_utils import *
 
 EXPLOIT_ARG_LOADING_TABLE = 'l'
 EXPLOIT_ARG_LOG_TABLE = 'o'
 EXPLOIT_ARG_RELOAD_ON_ERROR_INTERVAL = 'x'
 EXPLOIT_ARG_NOT_DROP_TEMP_RUNNING_LOADING_TABLE = 'k'
-
+ZOMBIES_TABLE_NAME = 'ZOMBIES'
 
 PARQUET_IDX_DIGITS = 5
 PANDAS_CHUNKSIZE = 100000
@@ -329,6 +330,8 @@ class BronzeLogger():
 class BronzeDbManager:
     # object to manage connection to bronze database
     # provide main functions to manage Bronze DB activities
+    gather_lh2_tables_stats = False
+    
     def __init__(self, pBronze_config:BronzeConfig,pLogger:BronzeLogger):
         self.bronzeDb_Manager_config = pBronze_config
         self.bronzeDbManager_env = self.bronzeDb_Manager_config.get_options().environment
@@ -370,6 +373,11 @@ class BronzeDbManager:
     def get_garbage_options(self):
         return self.garbage_options
     
+    def get_gather_lh2_tables_stats_status(self):
+        if self.df_tables_stats is None:
+            return False
+        return True
+        
     def get_db(self)->absdb:
         return self.bronzeDb_Manager_db
     
@@ -440,7 +448,7 @@ class BronzeDbManager:
     def get_lh2_tables_stats(self):
         return self.df_tables_stats
     
-    def gather_lh2_tables_stats(self,p_verbose=None):
+    def gather_lh2_tables_stats(self,p_count_rows=False,p_verbose=None):
         def __match_files_to_tables__(p_df, p_list_file_objects):
             # Function to match files to external tables and handle "zombies"
             # p_df is a dataframe mapping LH2_TABLES with same columns - Contains list of external tables 
@@ -477,7 +485,7 @@ class BronzeDbManager:
                 # add default values - For ENV and BUCKET set same values of last table inspected
                 v_zombies_data['ENV'] = v_env
                 v_zombies_data['OWNER'] = ''
-                v_zombies_data['TABLE_NAME'] = 'zombies'
+                v_zombies_data['TABLE_NAME'] = ZOMBIES_TABLE_NAME
                 v_zombies_data['PARTIONNED'] = 'NO'
                 v_zombies_data['TABLE_TYPE'] = ''
                 v_zombies_data['NUM_ROWS'] = 0
@@ -514,6 +522,17 @@ class BronzeDbManager:
             v_df_lh2_tables.columns = [x[0] for x in v_cursor.description]
             v_cursor.close()
             
+            if p_count_rows:
+                # count rows for each tables 
+                v_message = "Count rows for  list of external tables of bronze layer {}".format(self.bronzeDbManager_env)
+                if p_verbose:
+                    p_verbose.log(datetime.now(tz=timezone.utc),"GATHER_BRONZE_STATS","RUNNING",log_message=v_message)
+                for _v_index, v_row in v_df_lh2_tables.iterrows():
+                    v_table_data = v_row.to_dict()
+                    v_table_name = v_table_data['TABLE_NAME']
+                    v_num_rows = self.get_db().get_num_rows()
+                    v_df_lh2_tables.at[v_index,'TABLE_NAME'] = v_num_rows
+            
             # Get buckets used for bronze layers
             # Get distinct bucket names from the column
             v_bronze_buckets_array = v_df_lh2_tables['BUCKET'].unique()
@@ -531,7 +550,7 @@ class BronzeDbManager:
             for v_index, v_row in self.df_bronze_buckets_parquets.iterrows():
                 v_bucket_name = v_row['BUCKET']
                 v_bronze_bucket_proxy.set_bucket_by_name(v_bucket_name)
-                v_bucket = v_bronze_bucket_proxy.get_bucket()
+                v_bucket:AbsBucket = v_bronze_bucket_proxy.get_bucket()
                 v_bucket_list_objects = v_bucket.list_objects()
                 self.df_bronze_buckets_parquets.at[v_index, 'BUCKET_LIST_PARQUETS'] = [{'name':o.name,'size_mb':int(o.size or 0)/1024} for o in v_bucket_list_objects]
     
@@ -569,7 +588,7 @@ class BronzeDbManager:
             return None        
     
     def update_lh2_tables_stats(self,p_verbose=None):
-        if self.df_tables_stats is None:
+        if not self.get_gather_lh2_tables_stats_status():
             return False
         try:
             v_message = "Updating external tables stats of bronze layer {} into table {}:".format(self.bronzeDbManager_env,self.lh2_tables_tablename)
@@ -601,7 +620,7 @@ class BronzeDbManager:
             return False  
         
     def to_excel_lh2_tables_stats(self,p_excel_filename="lh2_bronze_tables_stats.xlsx",p_verbose=None):
-        if self.df_tables_stats is None:
+        if not self.get_gather_lh2_tables_stats_status():
             return None
         try:
             # Create access to filestorage where to export excel file
@@ -628,6 +647,47 @@ class BronzeDbManager:
                 p_verbose.log(datetime.now(tz=timezone.utc), "EXPORT_BRONZE_STATS", v_error,log_message=str(v_err))
             self.bronzeDb_Manager_logger.log(pError=v_err, pAction=v_error)
             return None 
+    
+    def __drop_parquet_files__(self,p_bucket_name,p_parquet_list,p_verbose=None):
+        # Into bucket, Drop list of parquets files
+        v_file = ''
+        try:
+            v_message = "Into bucket {}, drop parquet files : ".format(p_bucket_name,p_parquet_list)
+            if p_verbose:
+                p_verbose.log(datetime.now(tz=timezone.utc), "DROP_PARQUETS","START",log_message=v_message)
+            v_bronze_bucket_proxy = BronzeBucketProxy(self.bronzeDbManager_env,self.bronzeDb_Manager_config)
+            v_bronze_bucket_proxy.set_bucket_by_name(p_bucket_name)
+            v_bucket:AbsBucket = v_bronze_bucket_proxy.get_bucket()
+            # Iterate parquet list and delete object into bucket
+            for v_object in p_parquet_list:
+                v_file = v_object
+                v_bucket.delete_object(v_object)
+            return True
+        except Exception as v_err:
+            v_error= "ERROR Into bucket {}, can not drop parquet file {}".format(p_bucket_name,v_file)
+            if p_verbose:
+                p_verbose.log(datetime.now(tz=timezone.utc), "DROP_PARQUETS", v_error,log_message=str(v_err))
+            self.bronzeDb_Manager_logger.log(pError=v_err, pAction=v_error)
+            return False
+    
+    def garbage_collector(self,p_verbose=None):
+        if not self.get_gather_lh2_tables_stats_status():
+                return False
+        try:
+            v_message = "Start garbage collector for {} ".format(self.bronzeDbManager_env)
+            if p_verbose:
+                p_verbose.log(datetime.now(tz=timezone.utc), "GARBAGE_COLLECTOR","START",log_message=v_message)
+           
+            
+           
+            return True
+        except Exception as v_err:
+            v_error= "ERROR garbage collector for {}".format(self.bronzeDbManager_env)
+            if p_verbose:
+                p_verbose.log(datetime.now(tz=timezone.utc), "GARBAGE_COLLECTOR", v_error,log_message=str(v_err))
+            self.bronzeDb_Manager_logger.log(pError=v_err, pAction=v_error)
+            return False         
+         
 class BronzeBucketProxy:
     # Class to provide a substitute to manage bronze bucket.
     # add actions to get settings informations to connect to bronze buckets (DEBUG, DEV, STG, PRD)
