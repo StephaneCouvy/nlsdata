@@ -423,7 +423,7 @@ class BronzeDbManager:
             v_return = False
         finally:
             v_duration = datetime.now() - v_start
-            self.bronzeDb_Manager_logger.set_logger_properties(self.get_bronze_database_name(),p_proc_name,p_proc_exe_context,"args:{}".format(str(args)),v_duration)
+            self.bronzeDb_Manager_logger.set_logger_properties(self.get_bronze_database_name(),p_proc_exe_context,p_proc_name,"args:{}".format(str(args)),v_duration)
             
             if p_proc_name and self.get_db():
                 if p_verbose:
@@ -742,7 +742,7 @@ class BronzeSourceBuilder:
 
         # set bronze bucket settings 
         self.bronze_bucket_proxy = BronzeBucketProxy(self.env,self.bronze_config)
-        self.bronze_bucket_proxy.set_bucket_by_extension(p_bucket_extension=self.bronze_source_properties.name)
+        self.__set_bronze_bucket_proxy__()
          
         # To be set into subclass
         self.source_db = None
@@ -820,6 +820,10 @@ class BronzeSourceBuilder:
             idx = 0
         return idx
 
+    def __set_bronze_bucket_proxy__(self):
+        #define settings for bucket, especially storagename... could depends on subclass
+        pass
+    
     def __set_bronze_table_settings__(self):
         #define bronze table name, bucket path to add parquet files, get index to restart parquet files interation
         pass
