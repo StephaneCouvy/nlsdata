@@ -16,6 +16,8 @@ EXPLOIT_ARG_LOG_TABLE = 'o'
 EXPLOIT_ARG_RELOAD_ON_ERROR_INTERVAL = 'x'
 EXPLOIT_ARG_NOT_DROP_TEMP_RUNNING_LOADING_TABLE = 'k'
 ZOMBIES_TABLE_NAME = 'ZOMBIES'
+FILESTORAGE_BRONZE_BUCKET_DEBUG = 'BRONZE_BUCKET_DEBUG'
+FILESTORAGE_BRONZE_BUCKET = 'BRONZE_BUCKET'
 
 PARQUET_IDX_DIGITS = 5
 PANDAS_CHUNKSIZE = 100000
@@ -54,10 +56,10 @@ class BronzeConfig():
 
         if self.options.environment == "DEBUG":
             self.debug = True
-            self.oci_settings = get_parser_config_settings("filestorage")(self.configuration_file,"BRONZE_BUCKET_DEBUG")
+            self.oci_settings = get_parser_config_settings("filestorage")(self.configuration_file,FILESTORAGE_BRONZE_BUCKET_DEBUG)
         else:
             self.debug = False
-            self.oci_settings = get_parser_config_settings("filestorage")(self.configuration_file,"BRONZE_BUCKET")
+            self.oci_settings = get_parser_config_settings("filestorage")(self.configuration_file,FILESTORAGE_BRONZE_BUCKET)
 
         if self.options.rootdir != '':
             self.rootdir = path_replace_tilde_with_home(self.options.rootdir)
@@ -117,7 +119,7 @@ class BronzeExploit:
         self.exploit_loading_table = self.exploit_config.get_options().datasource_load_tablename_prefix + self.exploit_config.get_options().environment
         vCursor = self.get_db_connection().cursor()
 
-        # drop temporary running loding table or Not
+        # drop temporary running loding table or Not (Default) 
         self.not_drop_running_loading_table = optional_args[EXPLOIT_ARG_NOT_DROP_TEMP_RUNNING_LOADING_TABLE]
 
         if not optional_args[EXPLOIT_ARG_LOADING_TABLE] :
@@ -157,6 +159,7 @@ class BronzeExploit:
                     self.verbose.log(datetime.now(tz=timezone.utc), "EXPLOIT", "ERROR", log_message=message)
                 raise Exception(message)
         else:
+            # Use specified loading table 
             self.exploit_running_loading_table = optional_args[EXPLOIT_ARG_LOADING_TABLE]
             message = "Using running Exploit table  {}".format(self.exploit_running_loading_table)
             message += "\n{}".format(self.get_db().last_execute_proc_output())
@@ -166,7 +169,7 @@ class BronzeExploit:
         #define SourceProperties namedtuple as a global type
         global SourceProperties
         vLoadingTableProperties = self.get_db().create_namedtuple_from_table('SourceProperties',self.exploit_running_loading_table)
-        vNew_fields = [SOURCE_PPROPERTIES_SYNONYMS.get(old_name, old_name) for old_name in vLoadingTableProperties._fields]
+        vNew_fields = [SOURCE_PPROPERTIES_SYNONYMS.get(old_name,old_name) for old_name in vLoadingTableProperties._fields]
         vNew_fields.append('request')
         vDefaults_values = [None] * len(vNew_fields)
         SourceProperties = namedtuple ('SourceProperties',vNew_fields,defaults=vDefaults_values)
@@ -364,7 +367,7 @@ class BronzeDbManager:
     def __init_garbage_options__(self):
         self.garbage_options = get_parser_config_settings("garbage_options")(self.bronzeDb_Manager_config.get_configuration_file(),"garbage_options")
         self.gather_lh2_tables_stats_proc = self.garbage_options.PLSQL_gather_lh2_tables_stats_proc
-        self.gather_lh2_tables_stats_proc_args = [self.bronzeDbManager_env]
+        self.gather_lh2_tables_stats_proc_args = [self.get_db_username()]
         if self.garbage_options.PLSQL_gather_lh2_tables_stats_proc_args:
             self.gather_lh2_tables_stats_proc_args = self.gather_lh2_tables_stats_proc_args.append(self.garbage_options.PLSQL_gather_lh2_tables_stats_proc_args.split(','))
         self.lh2_tables_tablename = self.garbage_options.LH2_TABLES_TABLENAME
@@ -390,23 +393,26 @@ class BronzeDbManager:
     def get_bronze_database_name(self):
         return self.bronzeDb_Manager_database_name
     
+    def get_db_username(self):
+        return self.get_db_parameters().p_username
+    
     def get_pre_proc(self):
         return (self.pre_proc,self.pre_proc_args)
     
     def get_post_proc(self):
         return (self.post_proc,self.post_proc_args)
     
-    def is_bronzetable_exists(self,pTable_name):
+    def is_table_exists(self,p_table_name):
         res = False
         if self.get_db_connection():
-            res = self.get_db().is_table_exists(pTable_name)
+            res = self.get_db().is_table_exists(p_table_name)
         return res
     
-    def get_bronze_lastupdated_row(self,pTable_name,pSrc_date_criteria):
+    def get_bronze_lastupdated_row(self,p_table_name,p_src_date_criteria):
         last_date = None
         if not self.get_db_connection():
             return last_date
-        last_date = self.get_db().get_table_max_column(pTable_name, pSrc_date_criteria)
+        last_date = self.get_db().get_table_max_column(p_table_name, p_src_date_criteria)
         return last_date
     
     def run_proc(self,p_proc_name='',/,*args,p_verbose=None,p_proc_exe_context='GLOBAL'):
@@ -486,7 +492,7 @@ class BronzeDbManager:
                 v_zombies_data['ENV'] = v_env
                 v_zombies_data['OWNER'] = ''
                 v_zombies_data['TABLE_NAME'] = ZOMBIES_TABLE_NAME
-                v_zombies_data['PARTIONNED'] = 'NO'
+                v_zombies_data['PARTITIONED'] = 'NO'
                 v_zombies_data['TABLE_TYPE'] = ''
                 v_zombies_data['NUM_ROWS'] = 0
                 v_zombies_data['SIZE_MB'] = v_zombies_files_size
@@ -498,6 +504,9 @@ class BronzeDbManager:
             
             return pd.DataFrame(v_matches)
     
+        v_message = "Starting gather Bronze tables stats for {}".format(self.get_bronze_database_name())
+        if p_verbose:
+                p_verbose.log(datetime.now(tz=timezone.utc),"GATHER_BRONZE_STATS","START",log_message=v_message)
         # check if options for garbage are set
         if not self.get_garbage_options():
             self.__init_garbage_options__()
@@ -524,13 +533,16 @@ class BronzeDbManager:
             
             if p_count_rows:
                 # count rows for each tables 
+                """
                 v_message = "Count rows for  list of external tables of bronze layer {}".format(self.bronzeDbManager_env)
                 if p_verbose:
                     p_verbose.log(datetime.now(tz=timezone.utc),"GATHER_BRONZE_STATS","RUNNING",log_message=v_message)
+                """
                 for v_index, v_row in v_df_lh2_tables.iterrows():
                     v_table_data = v_row.to_dict()
                     v_table_name = v_table_data['TABLE_NAME']
-                    v_num_rows = self.get_db().get_num_rows()
+                    #v_num_rows = self.get_db().get_num_rows(v_table_name)
+                    v_num_rows = 0
                     v_df_lh2_tables.at[v_index,'TABLE_NAME'] = v_num_rows
             
             # Get buckets used for bronze layers
@@ -564,13 +576,17 @@ class BronzeDbManager:
             for v_index,v_row in self.df_bronze_buckets_parquets.iterrows():
                 v_bucket_name = v_row['BUCKET']
                 v_df_bucket_tables = v_df_lh2_tables[v_df_lh2_tables['BUCKET'] == v_bucket_name]
-                v_message = "Check files of bucket {0} are associated to external tables {1}".format(v_bucket_name,str(v_df_bucket_tables))
+                v_message = "Check which files of bucket {0} are associated to external tables.".format(v_bucket_name)
                 if p_verbose:
                     p_verbose.log(datetime.now(tz=timezone.utc),"GATHER_BRONZE_STATS","RUNNING",log_message=v_message)
                 v_df_updated_bucket_tables = __match_files_to_tables__(v_df_bucket_tables,v_row['BUCKET_LIST_PARQUETS'])
                 v_df_updated_tables_stats = pd.concat([v_df_updated_tables_stats,v_df_updated_bucket_tables], ignore_index=True)
             self.df_tables_stats = v_df_updated_tables_stats.fillna(0)
-            v_message = "Files are associated to external tables {}".format(str(self.df_tables_stats))
+            v_message = "Files are associated to external tables"
+            if p_verbose:
+                p_verbose.log(datetime.now(tz=timezone.utc),"GATHER_BRONZE_STATS","END",log_message=v_message)
+            
+            v_message = "COMPLETED gather Bronze tables stats for {}".format(self.get_bronze_database_name())
             if p_verbose:
                 p_verbose.log(datetime.now(tz=timezone.utc),"GATHER_BRONZE_STATS","END",log_message=v_message)
             return self.df_tables_stats
@@ -588,6 +604,8 @@ class BronzeDbManager:
             return None        
     
     def update_lh2_tables_stats(self,p_verbose=None):
+        # update databse LH2_tables with updated stats
+        
         if not self.get_gather_lh2_tables_stats_status():
             return False
         try:
@@ -599,12 +617,17 @@ class BronzeDbManager:
                 v_sql = "UPDATE " + self.lh2_tables_tablename + " SET NUM_ROWS = :1, SIZE_MB = :2, NUM_PARQUETS = :3, LIST_PARQUETS = :4 WHERE OWNER = :5 AND TABLE_NAME = :6"
                 v_bindvars = (int(v_row['NUM_ROWS'] or 0), int(v_row['SIZE_MB'] or 0), int(v_row['NUM_PARQUETS'] or 0),str(v_row['LIST_PARQUETS']), v_row['OWNER'], v_row['TABLE_NAME'])
                 v_message = "Updating {0}.{1}, num_rows {2}, size_mb {3}, num_parquets {4}".format(v_row['OWNER'], v_row['TABLE_NAME'],int(v_row['NUM_ROWS'] or 0), int(v_row['SIZE_MB'] or 0), int(v_row['NUM_PARQUETS'] or 0))
+                '''
                 if p_verbose:
                     p_verbose.log(datetime.now(tz=timezone.utc),"UPDATE_BRONZE_STATS","RUNNING",log_message=v_message)
+                '''
                 v_cursor.execute(v_sql,v_bindvars )
 
             self.get_db_connection().commit()
             v_cursor.close()
+            v_message = "COMPLETED - Update external tables stats of bronze layer {} into table {}:".format(self.bronzeDbManager_env,self.lh2_tables_tablename)
+            if p_verbose:
+                p_verbose.log(datetime.now(tz=timezone.utc),"UPDATE_BRONZE_STATS","END",log_message=v_message)
             return True
         except oracledb.Error as v_err:
             v_error= "ERROR Gather Bronze tables stats for environment {}".format(self.bronzeDbManager_env)
@@ -620,6 +643,8 @@ class BronzeDbManager:
             return False  
         
     def to_excel_lh2_tables_stats(self,p_excel_filename="lh2_bronze_tables_stats.xlsx",p_verbose=None):
+        #Export LH2 bronze tables stats to Excel file
+        
         if not self.get_gather_lh2_tables_stats_status():
             return None
         try:
@@ -631,7 +656,7 @@ class BronzeDbManager:
             v_excel_file_tmp = os.path.join(self.bronzeDb_Manager_config.get_tempdir(),'tmp_'+p_excel_filename)
             v_message = "Exporting to temporay Excel file {} :".format(v_excel_file_tmp)
             if p_verbose:
-                p_verbose.log(datetime.now(tz=timezone.utc), "EXPORT_BRONZE_STATS","RUNNING",log_message=v_message)
+                p_verbose.log(datetime.now(tz=timezone.utc), "EXPORT_BRONZE_STATS","START",log_message=v_message)
             self.df_tables_stats.to_excel(v_excel_file_tmp)
             
             # copy generated Excel to filestorage
@@ -640,6 +665,10 @@ class BronzeDbManager:
                 p_verbose.log(datetime.now(tz=timezone.utc), "EXPORT_BRONZE_STATS", "RUNNING",log_message=v_message)
             v_destination_excel_file = v_filestorage.put_file(p_excel_filename,v_excel_file_tmp)
             os.remove(v_excel_file_tmp)
+            
+            v_message = "COMPLETED Export to Excel file {} :".format(v_destination_excel_file)
+            if p_verbose:
+                p_verbose.log(datetime.now(tz=timezone.utc), "EXPORT_BRONZE_STATS","END",log_message=v_message)
             return v_destination_excel_file
         except Exception as v_err:
             v_error= "ERROR Export to Excel file Bronze tables stats for environment {}".format(self.bronzeDbManager_env)
@@ -648,13 +677,13 @@ class BronzeDbManager:
             self.bronzeDb_Manager_logger.log(pError=v_err, pAction=v_error)
             return None 
     
-    def __drop_parquet_files__(self,p_bucket_name,p_parquet_list,p_verbose=None):
+    def __delete_parquet_files__(self,p_bucket_name,p_parquet_list,p_verbose=None):
         # Into bucket, Drop list of parquets files
         v_file = ''
         try:
-            v_message = "Into bucket {}, drop parquet files : ".format(p_bucket_name,p_parquet_list)
+            v_message = "Into bucket {}, deleting parquet files : {}".format(p_bucket_name,p_parquet_list)
             if p_verbose:
-                p_verbose.log(datetime.now(tz=timezone.utc), "DROP_PARQUETS","START",log_message=v_message)
+                p_verbose.log(datetime.now(tz=timezone.utc), "DELETE_PARQUETS","START",log_message=v_message)
             v_bronze_bucket_proxy = BronzeBucketProxy(self.bronzeDbManager_env,self.bronzeDb_Manager_config)
             v_bronze_bucket_proxy.set_bucket_by_name(p_bucket_name)
             v_bucket:AbsBucket = v_bronze_bucket_proxy.get_bucket()
@@ -662,24 +691,39 @@ class BronzeDbManager:
             for v_object in p_parquet_list:
                 v_file = v_object
                 v_bucket.delete_object(v_object)
+            
+            v_message = "COMLPLETED, into bucket {}, deleted {} parquet files".format(p_bucket_name,len(p_parquet_list))
+            if p_verbose:
+                p_verbose.log(datetime.now(tz=timezone.utc), "DELETE_PARQUETS","END",log_message=v_message)
             return True
         except Exception as v_err:
             v_error= "ERROR Into bucket {}, can not drop parquet file {}".format(p_bucket_name,v_file)
             if p_verbose:
-                p_verbose.log(datetime.now(tz=timezone.utc), "DROP_PARQUETS", v_error,log_message=str(v_err))
+                p_verbose.log(datetime.now(tz=timezone.utc), "DELETE_PARQUETS", v_error,log_message=str(v_err))
             self.bronzeDb_Manager_logger.log(pError=v_err, pAction=v_error)
             return False
     
     def garbage_collector(self,p_verbose=None):
+        #Garbage collector to delete parquet files not associated to any external tables (zombies parquet files)
+        
         if not self.get_gather_lh2_tables_stats_status():
-                return False
+                return True
         try:
             v_message = "Start garbage collector for {} ".format(self.bronzeDbManager_env)
             if p_verbose:
                 p_verbose.log(datetime.now(tz=timezone.utc), "GARBAGE_COLLECTOR","START",log_message=v_message)
-           
-            
-           
+            # Filter on ZOMBIES TABLE
+            v_mask = self.df_tables_stats['TABLE_NAME'] == ZOMBIES_TABLE_NAME
+            for v_index,v_row in self.df_tables_stats[v_mask].iterrows():
+                v_bucket_name = v_row['BUCKET']
+                v_parquet_list = v_row['LIST_PARQUETS']
+                v_result = self.__delete_parquet_files__(p_bucket_name=v_bucket_name,p_parquet_list=v_parquet_list,p_verbose=p_verbose)
+                if not v_result:
+                    raise Exception("ERROR  Deleting parquet files into bucket {}".format(v_bucket_name))
+                
+            v_message = "COMPLETED garbage collector for {} ".format(self.bronzeDbManager_env)
+            if p_verbose:
+                p_verbose.log(datetime.now(tz=timezone.utc), "GARBAGE_COLLECTOR","END",log_message=v_message)
             return True
         except Exception as v_err:
             v_error= "ERROR garbage collector for {}".format(self.bronzeDbManager_env)
@@ -687,7 +731,46 @@ class BronzeDbManager:
                 p_verbose.log(datetime.now(tz=timezone.utc), "GARBAGE_COLLECTOR", v_error,log_message=str(v_err))
             self.bronzeDb_Manager_logger.log(pError=v_err, pAction=v_error)
             return False         
-         
+    
+    def drop_table(self,p_table_name,p_verbose=None):
+        # drop bronze table : drop external table into database and delete associated parquet files
+        
+        if not self.get_gather_lh2_tables_stats_status():
+            return False
+        try:
+            v_message = "Starting Drop table {}.{} ".format(self.get_db_username(),p_table_name)
+            if p_verbose:
+                p_verbose.log(datetime.now(tz=timezone.utc), "DROP_TABLE","START",log_message=v_message)
+            # Test if table exists
+            if not self.is_table_exists(p_table_name):
+                v_message = "Table {}.{} does not exist ".format(self.get_db_username(),p_table_name)
+                if p_verbose:
+                    p_verbose.log(datetime.now(tz=timezone.utc), "DROP_TABLE","START",log_message=v_message)
+                return True
+            # Filter on table name  and ower = db user name
+            v_mask = (self.df_tables_stats['OWNER'] == self.get_db_username()) & (self.df_tables_stats['TABLE_NAME'] == p_table_name)
+            for v_index,v_row in self.df_tables_stats[v_mask].iterrows():
+                # Drop table into database
+                v_result_run_proc = self.get_bronzedb_manager().run_proc('LH2_ADMIN_BRONZE_PKG.DROP_TABLE_PROC',*[p_table_name],p_verbose=p_verbose,p_proc_exe_context=p_table_name)
+                if not v_result_run_proc:
+                    raise Exception("ERROR dropping table {}.{}".format(self.get_db_username(),p_table_name))
+                # delete associated parquets files
+                v_bucket_name = v_row['BUCKET']
+                v_parquet_list = v_row['LIST_PARQUETS']
+                v_result = self.__delete_parquet_files__(p_bucket_name=v_bucket_name,p_parquet_list=v_parquet_list,p_verbose=p_verbose)
+                if not v_result:
+                    raise Exception("ERROR  Deleting parquet files into bucket {}".format(v_bucket_name))
+                
+            v_message = "COMPLETED Drop table {}.{} and associated parquet files".format(self.get_db_username(),p_table_name)
+            if p_verbose:
+                p_verbose.log(datetime.now(tz=timezone.utc), "DROP_TABLE","END",log_message=v_message)
+            return True
+        
+        except Exception as v_err:
+            v_error= "ERROR Drop table {}.{} ".format(self.get_db_username(),p_table_name)
+            if p_verbose:
+                p_verbose.log(datetime.now(tz=timezone.utc), "GARBAGE_COLLECTOR", v_error,log_message=str(v_err))
+            self.bronzeDb_Manager_logger.log(pError=v_err, pAction=v_error)           
 class BronzeBucketProxy:
     # Class to provide a substitute to manage bronze bucket.
     # add actions to get settings informations to connect to bronze buckets (DEBUG, DEV, STG, PRD)
@@ -709,21 +792,25 @@ class BronzeBucketProxy:
         v_bucket_name = None
         if not self.debug:
             v_bucket_name = self.bronze_config.get_oci_settings().storage_name + "-" + self.env + "-" + p_bucket_extension
+        else:
+            v_bucket_name = self.bronze_config.get_oci_settings().storage_name
         self.set_bucket_by_name(v_bucket_name)
             
     def set_bucket_by_name(self,p_bucket_name):
-        if not self.debug:
-            self.bronze_bucket_settings=self.bronze_config.get_oci_settings()._replace(storage_name=p_bucket_name)
+        self.bronze_bucket_settings=self.bronze_config.get_oci_settings()._replace(storage_name=p_bucket_name)
+        """
         else:
             self.bronze_bucket_settings = type(self.bronze_config.get_oci_settings())._make(self.bronze_config.get_oci_settings())
+        """
+        # Initialize bucket when set a new storage name
+        self.bucket= None
             
     def connect(self):
         if self.get_bronze_bucket_settings():
             self.bucket = FILESTORAGEFACTORY.create_instance(self.get_bronze_bucket_settings().filestorage_wrapper,**self.get_bronze_bucket_settings()._asdict())
-            return self.bucket
         else:
             self.bucket = None
-            return None
+        return self.bucket
     
     def get_bucket(self):
         if not self.bucket:
@@ -992,7 +1079,7 @@ class BronzeSourceBuilder:
             # Dropping table before recreating
             #drop = 'BEGIN EXECUTE IMMEDIATE \'DROP TABLE ' + vTable + '\'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;'
             if verbose:
-                message = "Dropping table {}.{} ".format(self.get_bronzedb_manager().get_db_parameters().p_username,vTable)
+                message = "Dropping table {}.{} ".format(self.get_bronzedb_manager().get_db_username(),vTable)
                 verbose.log(datetime.now(tz=timezone.utc), "DROP_TABLE", "START", log_message=message)
             #cursor.execute(drop)
             vResult_run_proc = self.get_bronzedb_manager().run_proc('LH2_ADMIN_BRONZE_PKG.DROP_TABLE_PROC',*[vTable],p_verbose=verbose,p_proc_exe_context=vTable)
@@ -1016,11 +1103,11 @@ class BronzeSourceBuilder:
             cursor.execute(create)
             # Alter column type from BINARY_DOUBLE to NUMBER
             if verbose:
-                message = "Altering table columns type {}.{}".format(self.get_bronzedb_manager().get_db_parameters().p_username,vTable)
+                message = "Altering table columns type {}.{}".format(self.get_bronzedb_manager().get_db_username(),vTable)
                 verbose.log(datetime.now(tz=timezone.utc), "ALTER_TABLE", "START", log_message=message)
             vResult_run_proc = self.get_bronzedb_manager().run_proc('LH2_ADMIN_BRONZE_PKG.ALTER_TABLE_COLUMN_TYPE_PROC',*[vTable,'BINARY_DOUBLE','NUMBER(38,10)'],p_verbose=verbose,p_proc_exe_context=vTable)
             if not vResult_run_proc:
-                raise Exception("ERROR altering table columns type {}.{}".format(self.get_bronzedb_manager().get_db_parameters().p_username,vTable))
+                raise Exception("ERROR altering table columns type {}.{}".format(self.get_bronzedb_manager().get_db_username(),vTable))
             cursor.close()
             return True
 
@@ -1147,7 +1234,7 @@ class BronzeSourceBuilder:
                 if verbose:
                     verbose.log(datetime.now(tz=timezone.utc), "UPADATE_BRONZE", "END", log_message=message)
                 res = True
-            elif self.bronze_source_properties.incremental and self.get_bronzedb_manager().is_bronzetable_exists(self.bronze_table):
+            elif self.bronze_source_properties.incremental and self.get_bronzedb_manager().is_table_exists(self.bronze_table):
                 # if incremental mode, if table exists, update (synchronize) external part table
                 res = self.__sync_bronze_table__(verbose)
             else:

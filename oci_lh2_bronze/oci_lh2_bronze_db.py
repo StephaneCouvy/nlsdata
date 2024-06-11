@@ -39,7 +39,7 @@ class BronzeSourceBuilderDb(BronzeSourceBuilder):
             # Execute a SQL query to fetch all data from the current table
             if verbose:
                 message = "Mode {2} : Extracting data {0},{1}".format(self.bronze_source_properties.schema, self.bronze_source_properties.table,SQL_READMODE)
-                verbose.log(datetime.now(tz=timezone.utc), "FETCH", "START", log_message=message,log_request = self.request)
+                verbose.log(datetime.now(tz=timezone.utc), "FETCH", "START", log_message=message,log_request = self.request+': '+str(self.db_execute_bind))
             self.df_table_content = pd.DataFrame()
             match SQL_READMODE:
                 case "DBCURSOR":
