@@ -116,12 +116,26 @@ class BronzeExploit:
         self.exploit_db:absdb = DBFACTORY.create_instance(self.exploit_db_param.dbwrapper,self.exploit_config.get_configuration_file())
         self.exploit_db_connection = self.exploit_db.create_db_connection(self.exploit_db_param)
 
-        self.exploit_loading_table = self.exploit_config.get_options().datasource_load_tablename_prefix + self.exploit_config.get_options().environment
-        vCursor = self.get_db_connection().cursor()
+        v_cursor = self.get_db_connection().cursor()
 
         # drop temporary running loding table or Not (Default) 
         self.not_drop_running_loading_table = optional_args[EXPLOIT_ARG_NOT_DROP_TEMP_RUNNING_LOADING_TABLE]
 
+        # Create running/temporary List Datasource loading table.
+        # Insert list of tables to import
+        self.exploit_loading_table = self.exploit_config.get_options().datasource_load_tablename_prefix + self.exploit_config.get_options().environment
+        self.exploit_running_loading_table = format_temporary_tablename(self.exploit_loading_table)
+        message = "Create running Exploit table  {}".format(self.exploit_running_loading_table)
+        if self.verbose:
+            self.verbose.log(datetime.now(tz=timezone.utc), "EXPLOIT", "START", log_message=message)
+        
+        v_ldld_table = self.exploit_loading_table
+        if optional_args[EXPLOIT_ARG_LOADING_TABLE]:
+            v_ldld2_table = optional_args[EXPLOIT_ARG_LOADING_TABLE]
+        else:    
+            v_ldld2_table = self.exploit_loading_table
+            
+        '''
         if not optional_args[EXPLOIT_ARG_LOADING_TABLE] :
             # Create running/temporary List Datasource loading table.
             # Insert list of tables to import
@@ -165,7 +179,8 @@ class BronzeExploit:
             message += "\n{}".format(self.get_db().last_execute_proc_output())
             if self.verbose:
                 self.verbose.log(datetime.now(tz=timezone.utc), "EXPLOIT", "START", log_message=message)
-
+        '''
+        
         #define SourceProperties namedtuple as a global type
         global SourceProperties
         vLoadingTableProperties = self.get_db().create_namedtuple_from_table('SourceProperties',self.exploit_running_loading_table)
@@ -176,11 +191,11 @@ class BronzeExploit:
         
         # Execute a SQL query to fetch activ data from the table "LIST_DATASOURCE_LOADING_..." into a dataframe
         param_req = "select * from " + self.exploit_running_loading_table + " where SRC_FLAG_ACTIV = 1 ORDER BY SRC_TYPE,SRC_NAME,SRC_OBJECT_NAME"
-        vCursor.execute(param_req)
-        self.df_param = pd.DataFrame(vCursor.fetchall())
-        self.df_param.columns = [x[0] for x in vCursor.description]
+        v_cursor.execute(param_req)
+        self.df_param = pd.DataFrame(v_cursor.fetchall())
+        self.df_param.columns = [x[0] for x in v_cursor.description]
         #self.iterator = iter(map(SourceProperties._make,vCursor.fetchall()))
-        vCursor.close()
+        v_cursor.close()
 
     def __del__(self):
         if not self.not_drop_running_loading_table:
@@ -543,7 +558,7 @@ class BronzeDbManager:
                     v_table_name = v_table_data['TABLE_NAME']
                     #v_num_rows = self.get_db().get_num_rows(v_table_name)
                     v_num_rows = 0
-                    v_df_lh2_tables.at[v_index,'TABLE_NAME'] = v_num_rows
+                    v_df_lh2_tables.at[v_index,'NUM_ROWS'] = v_num_rows
             
             # Get buckets used for bronze layers
             # Get distinct bucket names from the column
@@ -616,6 +631,7 @@ class BronzeDbManager:
             for v_index, v_row in self.df_tables_stats.iterrows():
                 v_sql = "UPDATE " + self.lh2_tables_tablename + " SET NUM_ROWS = :1, SIZE_MB = :2, NUM_PARQUETS = :3, LIST_PARQUETS = :4 WHERE OWNER = :5 AND TABLE_NAME = :6"
                 v_bindvars = (int(v_row['NUM_ROWS'] or 0), int(v_row['SIZE_MB'] or 0), int(v_row['NUM_PARQUETS'] or 0),str(v_row['LIST_PARQUETS']), v_row['OWNER'], v_row['TABLE_NAME'])
+                
                 v_message = "Updating {0}.{1}, num_rows {2}, size_mb {3}, num_parquets {4}".format(v_row['OWNER'], v_row['TABLE_NAME'],int(v_row['NUM_ROWS'] or 0), int(v_row['SIZE_MB'] or 0), int(v_row['NUM_PARQUETS'] or 0))
                 '''
                 if p_verbose:
