@@ -372,7 +372,12 @@ class BronzeDbManager:
         if self.df_tables_stats is None:
             return False
         return True
-        
+    def get_lh2_bronze_tables(self):
+        return self.df_tables_stats
+    
+    def get_lh2_bronze_buckets(self):
+        return self.df_bronze_buckets_parquets
+    
     def get_db(self)->absdb:
         return self.bronzeDb_Manager_db
     
@@ -606,8 +611,9 @@ class BronzeDbManager:
                 p_verbose.log(datetime.now(tz=timezone.utc),"UPDATE_BRONZE_STATS","START",log_message=v_message)
             v_cursor = self.get_db_connection().cursor()
             for v_index, v_row in self.df_tables_stats.iterrows():
+                v_rown_list_parquets = list_to_string(v_row['LIST_PARQUETS'])
                 v_sql = "UPDATE " + self.lh2_tables_tablename + " SET NUM_ROWS = :1, SIZE_MB = :2, NUM_PARQUETS = :3, LIST_PARQUETS = :4 WHERE OWNER = :5 AND TABLE_NAME = :6"
-                v_bindvars = (int(v_row['NUM_ROWS'] or 0), int(v_row['SIZE_MB'] or 0), int(v_row['NUM_PARQUETS'] or 0),str(v_row['LIST_PARQUETS']), v_row['OWNER'], v_row['TABLE_NAME'])
+                v_bindvars = (int(v_row['NUM_ROWS'] or 0), int(v_row['SIZE_MB'] or 0), int(v_row['NUM_PARQUETS'] or 0),v_rown_list_parquets, v_row['OWNER'], v_row['TABLE_NAME'])
                 
                 v_message = "Updating {0}.{1}, num_rows {2}, size_mb {3}, num_parquets {4}".format(v_row['OWNER'], v_row['TABLE_NAME'],int(v_row['NUM_ROWS'] or 0), int(v_row['SIZE_MB'] or 0), int(v_row['NUM_PARQUETS'] or 0))
                 '''
@@ -650,7 +656,8 @@ class BronzeDbManager:
             v_message = "Exporting to temporay Excel file {} :".format(v_excel_file_tmp)
             if p_verbose:
                 p_verbose.log(datetime.now(tz=timezone.utc), "EXPORT_BRONZE_STATS","START",log_message=v_message)
-            self.df_tables_stats.to_excel(v_excel_file_tmp)
+            v_df_converted_lists_to_strings = df_convert_lists_to_strings(self.df_tables_stats)
+            v_df_converted_lists_to_strings.to_excel(v_excel_file_tmp,index=False)
             
             # copy generated Excel to filestorage
             v_message = "Copy temporay Excel file {} -> {}:".format(v_excel_file_tmp,v_filestorage.get_filestorage_name())
@@ -683,7 +690,7 @@ class BronzeDbManager:
             # Iterate parquet list and delete object into bucket
             for v_object in p_parquet_list:
                 v_file = v_object
-                #v_bucket.delete_object(v_object)
+                v_bucket.delete_object(v_object)
             
             v_message = "COMLPLETED, into bucket {}, deleted {} parquet files".format(p_bucket_name,len(p_parquet_list))
             if p_verbose:
@@ -744,11 +751,11 @@ class BronzeDbManager:
             v_mask = (self.df_tables_stats['OWNER'] == self.get_db_username()) & (self.df_tables_stats['TABLE_NAME'] == p_table_name)
             for v_index,v_row in self.df_tables_stats[v_mask].iterrows():
                 # Drop table into database
-                '''
+                
                 v_result_run_proc = self.run_proc('LH2_ADMIN_BRONZE_PKG.DROP_TABLE_PROC',*[p_table_name],p_verbose=p_verbose,p_proc_exe_context=p_table_name)
                 if not v_result_run_proc:
                     raise Exception("ERROR dropping table {}.{}".format(self.get_db_username(),p_table_name))
-                '''
+                
                 # delete associated parquets files
                 v_bucket_name = v_row['BUCKET']
                 v_parquet_list = v_row['LIST_PARQUETS']
