@@ -123,63 +123,40 @@ class BronzeExploit:
 
         # Create running/temporary List Datasource loading table.
         # Insert list of tables to import
+
         self.exploit_loading_table = self.exploit_config.get_options().datasource_load_tablename_prefix + self.exploit_config.get_options().environment
         self.exploit_running_loading_table = format_temporary_tablename(self.exploit_loading_table)
-        message = "Create running Exploit table  {}".format(self.exploit_running_loading_table)
+        message = "Create running exploit loading table  {}".format(self.exploit_running_loading_table)
         if self.verbose:
             self.verbose.log(datetime.now(tz=timezone.utc), "EXPLOIT", "START", log_message=message)
-        
-        v_ldld_table = self.exploit_loading_table
-        if optional_args[EXPLOIT_ARG_LOADING_TABLE]:
-            v_ldld2_table = optional_args[EXPLOIT_ARG_LOADING_TABLE]
-        else:    
-            v_ldld2_table = self.exploit_loading_table
             
-        '''
-        if not optional_args[EXPLOIT_ARG_LOADING_TABLE] :
-            # Create running/temporary List Datasource loading table.
-            # Insert list of tables to import
-            self.exploit_running_loading_table = format_temporary_tablename(self.exploit_loading_table)
+        if optional_args[EXPLOIT_ARG_LOADING_TABLE]:
+            self.batch_loading_table = optional_args[EXPLOIT_ARG_LOADING_TABLE]
+        else:    
+            self.batch_loading_table = self.exploit_loading_table
+        
+        v_log_table = optional_args[EXPLOIT_ARG_LOG_TABLE]
+        v_interval_start = ''
+        v_interval_end = ''
+        if optional_args[EXPLOIT_ARG_RELOAD_ON_ERROR_INTERVAL] :
+            v_interval_start = optional_args[EXPLOIT_ARG_RELOAD_ON_ERROR_INTERVAL][0].strftime("%Y-%m-%d %H:%M:%S")
+            # If end date of intervant not provided, then take Now date
+            try:
+                v_interval_end = optional_args[EXPLOIT_ARG_RELOAD_ON_ERROR_INTERVAL][1].strftime("%Y-%m-%d %H:%M:%S")
+            except IndexError:
+                v_interval_end = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
-            exploit_running_loading_table_fullname = self.exploit_db_param.p_username +'.' + self.exploit_running_loading_table
-
-            message = "Create running Exploit table  {}".format(self.exploit_running_loading_table)
+            message = "Populate exploit loading table {} with previous error tables from log table {} on interval {}->{}".format(self.exploit_running_loading_table,v_log_table,v_interval_start,v_interval_end)
             if self.verbose:
                 self.verbose.log(datetime.now(tz=timezone.utc), "EXPLOIT", "START", log_message=message)
-
-            if optional_args[EXPLOIT_ARG_RELOAD_ON_ERROR_INTERVAL] and optional_args[EXPLOIT_ARG_LOG_TABLE] :
-                vDmbs_output = self.get_db().execute_proc('LH2_ADMIN_EXPLOIT_PKG.DUPLICATE_TABLE_PROC', *[self.exploit_loading_table,self.exploit_running_loading_table,False])
-
-                vInterval_start = optional_args[EXPLOIT_ARG_RELOAD_ON_ERROR_INTERVAL][0].strftime("%Y-%m-%d %H:%M:%S")
-                # If end date of intervant not provided, then take Now date
-                try:
-                    vInterval_end = optional_args[EXPLOIT_ARG_RELOAD_ON_ERROR_INTERVAL][1].strftime("%Y-%m-%d %H:%M:%S")
-                except IndexError:
-                    vInterval_end = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-
-                vLog_table = optional_args[EXPLOIT_ARG_LOG_TABLE]
-                message = "Populate Exploit table {} with previous error tables from log table {} on interval {}->{}".format(self.exploit_running_loading_table,vLog_table,vInterval_start,vInterval_end)
-                if self.verbose:
-                    self.verbose.log(datetime.now(tz=timezone.utc), "EXPLOIT", "START", log_message=message)
-                vDmbs_output = self.get_db().execute_proc('LH2_ADMIN_EXPLOIT_PKG.CREATE_LH2_DATASOURCE_LOADING_ON_ERROR',*[self.exploit_loading_table,self.exploit_running_loading_table,vLog_table,vInterval_start,vInterval_end])
-                self.get_db_connection().commit()
-            else:
-                vDmbs_output = self.get_db().execute_proc('LH2_ADMIN_EXPLOIT_PKG.DUPLICATE_TABLE_PROC', *[self.exploit_loading_table,self.exploit_running_loading_table,True])
-                self.get_db_connection().commit()
-            if not self.get_db().last_execute_proc_completion():
-                message = "ERROR, Create running Exploit table  {}".format(self.exploit_running_loading_table)
-                message += "\n{}".format(self.get_db().last_execute_proc_output())
-                if self.verbose:
-                    self.verbose.log(datetime.now(tz=timezone.utc), "EXPLOIT", "ERROR", log_message=message)
-                raise Exception(message)
-        else:
-            # Use specified loading table 
-            self.exploit_running_loading_table = optional_args[EXPLOIT_ARG_LOADING_TABLE]
-            message = "Using running Exploit table  {}".format(self.exploit_running_loading_table)
+        vDmbs_output = self.get_db().execute_proc('LH2_ADMIN_EXPLOIT_PKG.CREATE_LH2_DATASOURCE_LOADING_PROC',*[self.exploit_loading_table,self.batch_loading_table,self.exploit_running_loading_table,v_log_table,v_interval_start,v_interval_end])
+        self.get_db_connection().commit()
+        if not self.get_db().last_execute_proc_completion():
+            message = "ERROR, Create running exploit loading table  {}".format(self.exploit_running_loading_table)
             message += "\n{}".format(self.get_db().last_execute_proc_output())
             if self.verbose:
-                self.verbose.log(datetime.now(tz=timezone.utc), "EXPLOIT", "START", log_message=message)
-        '''
+                self.verbose.log(datetime.now(tz=timezone.utc), "EXPLOIT", "ERROR", log_message=message)
+            raise Exception(message)
         
         #define SourceProperties namedtuple as a global type
         global SourceProperties
@@ -697,7 +674,7 @@ class BronzeDbManager:
         # Into bucket, Drop list of parquets files
         v_file = ''
         try:
-            v_message = "Into bucket {}, deleting parquet files : {}".format(p_bucket_name,p_parquet_list)
+            v_message = "Into bucket {}, deleting {} parquet files : {}".format(p_bucket_name,len(p_parquet_list),p_parquet_list)
             if p_verbose:
                 p_verbose.log(datetime.now(tz=timezone.utc), "DELETE_PARQUETS","START",log_message=v_message)
             v_bronze_bucket_proxy = BronzeBucketProxy(self.bronzeDbManager_env,self.bronzeDb_Manager_config)
@@ -706,7 +683,7 @@ class BronzeDbManager:
             # Iterate parquet list and delete object into bucket
             for v_object in p_parquet_list:
                 v_file = v_object
-                v_bucket.delete_object(v_object)
+                #v_bucket.delete_object(v_object)
             
             v_message = "COMLPLETED, into bucket {}, deleted {} parquet files".format(p_bucket_name,len(p_parquet_list))
             if p_verbose:
@@ -767,9 +744,11 @@ class BronzeDbManager:
             v_mask = (self.df_tables_stats['OWNER'] == self.get_db_username()) & (self.df_tables_stats['TABLE_NAME'] == p_table_name)
             for v_index,v_row in self.df_tables_stats[v_mask].iterrows():
                 # Drop table into database
-                v_result_run_proc = self.get_bronzedb_manager().run_proc('LH2_ADMIN_BRONZE_PKG.DROP_TABLE_PROC',*[p_table_name],p_verbose=p_verbose,p_proc_exe_context=p_table_name)
+                '''
+                v_result_run_proc = self.run_proc('LH2_ADMIN_BRONZE_PKG.DROP_TABLE_PROC',*[p_table_name],p_verbose=p_verbose,p_proc_exe_context=p_table_name)
                 if not v_result_run_proc:
                     raise Exception("ERROR dropping table {}.{}".format(self.get_db_username(),p_table_name))
+                '''
                 # delete associated parquets files
                 v_bucket_name = v_row['BUCKET']
                 v_parquet_list = v_row['LIST_PARQUETS']
