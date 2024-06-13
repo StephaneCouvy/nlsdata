@@ -29,7 +29,7 @@ PARQUET_FILE_EXTENSION = ".parquet"
 DBFACTORY = NLSDbFactory()
 FILESTORAGEFACTORY = NLSFileStorageFactory()
 
-SOURCE_PPROPERTIES_SYNONYMS = {'SRC_TYPE': 'type', 'SRC_NAME': 'name', 'SRC_ORIGIN_NAME': 'schema', 'SRC_OBJECT_NAME': 'table', 'SRC_OBJECT_CONSTRAINT': 'table_constraint', 'SRC_FLAG_ACTIVE': 'active', 'SRC_FLAG_INCR': 'incremental', 'SRC_DATE_CONSTRAINT': 'date_criteria', 'SRC_DATE_LASTUPDATE': 'last_update', 'FORCE_ENCODE': 'force_encode', 'BRONZE_POST_PROCEDURE': 'bronze_post_proc', 'BRONZE_POST_PROCEDURE_ARGS': 'bronze_post_proc_args'}
+SOURCE_PPROPERTIES_SYNONYMS = {'SRC_TYPE': 'type', 'SRC_NAME': 'name', 'SRC_ORIGIN_NAME': 'schema', 'SRC_OBJECT_NAME': 'table', 'SRC_OBJECT_CONSTRAINT': 'table_constraint', 'SRC_FLAG_ACTIVE': 'active', 'SRC_FLAG_INCR': 'incremental', 'SRC_DATE_CONSTRAINT': 'date_criteria', 'SRC_DATE_LASTUPDATE': 'last_update', 'FORCE_ENCODE': 'force_encode', 'BRONZE_POST_PROCEDURE': 'bronze_post_proc', 'BRONZE_POST_PROCEDURE_ARGS': 'bronze_post_proc_args','LASTUPDATE_PARQUET':'lastupdate_parquet'}
 SourceProperties = namedtuple('SourceProperties',list(SOURCE_PPROPERTIES_SYNONYMS.values()))
 # SourceProperties namedtuple is set into Exploit __init__, based on fields of table used to list sources
 
@@ -209,33 +209,38 @@ class BronzeExploit:
     def get_loading_tables(self):
         return (self.exploit_loading_table,self.exploit_running_loading_table)
 
-    def update_exploit(self,p_source:SourceProperties,p_column_name, pValue):
-        request = ""
+    def update_exploit(self,p_source:SourceProperties,p_dict_column_name_value):
+        v_request = ""
         try:
-            vCursor = self.get_db_connection().cursor()
-            request = "UPDATE " + self.exploit_loading_table + " SET "+p_column_name+" = :1 WHERE SRC_NAME = :2 AND SRC_ORIGIN_NAME = :3 AND SRC_OBJECT_NAME = :4"
-
+            v_cursor = self.get_db_connection().cursor()
+            v_request = "UPDATE " + self.exploit_loading_table
+            #v_request = "UPDATE " + self.exploit_loading_table + " SET "+p_column_name+" = :1 WHERE SRC_NAME = :2 AND SRC_ORIGIN_NAME = :3 AND SRC_OBJECT_NAME = :4"
+            v_arg_idx = 1
+            for v_column,v_value in p_dict_column_name_value.items():
+                v_request += " SET "+v_column+" =:"+v_arg_idx+","
+                v_arg_idx +=1
+            
             # update last date or creation date (depends on table)
             message = "Updating {} = {} on table {}".format(p_column_name,pValue,self.exploit_loading_table)
             if self.verbose:
                 self.verbose.log(datetime.now(tz=timezone.utc), "SET_LASTUPDATE", "START", log_message=message,
-                            log_request=request)
+                            log_request=v_request)
             bindvars = (pValue,p_source.name,p_source.schema,p_source.table)
-            vCursor.execute(request,bindvars)
+            v_cursor.execute(v_request,bindvars)
             self.get_db_connection().commit()
-            vCursor.close()
+            v_cursor.close()
             return True
-        except oracledb.Error as err:
-            vError = "ERROR {} with values {}".format(request,bindvars)
+        except oracledb.Error as v_err:
+            v_error = "ERROR {} with values {}".format(v_request,bindvars)
             if self.verbose:
-                self.verbose.log(datetime.now(tz=timezone.utc), "UPDATE_EXPLOIT", vError,log_message='Oracle DB error : {}'.format(str(err)))
-            self.logger.log(pError=err, pAction=vError)
+                self.verbose.log(datetime.now(tz=timezone.utc), "UPDATE_EXPLOIT", v_error,log_message='Oracle DB error : {}'.format(str(v_err)))
+            self.logger.log(pError=v_err, pAction=v_error)
             return False
-        except Exception as err:
-            vError = "ERROR {} with values {}".format(request, bindvars)
+        except Exception as v_err:
+            v_error = "ERROR {} with values {}".format(v_request, bindvars)
             if self.verbose:
-                self.verbose.log(datetime.now(tz=timezone.utc), "UPDATE_EXPLOIT", vError,str(err))
-            self.logger.log(pError=err, pAction=vError)
+                self.verbose.log(datetime.now(tz=timezone.utc), "UPDATE_EXPLOIT", v_error,str(v_err))
+            self.logger.log(pError=v_err, pAction=v_error)
             return False
 
     def __str__(self):
