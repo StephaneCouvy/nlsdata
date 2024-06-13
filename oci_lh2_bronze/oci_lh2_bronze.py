@@ -29,7 +29,8 @@ PARQUET_FILE_EXTENSION = ".parquet"
 DBFACTORY = NLSDbFactory()
 FILESTORAGEFACTORY = NLSFileStorageFactory()
 
-SOURCE_PPROPERTIES_SYNONYMS = {'SRC_TYPE': 'type', 'SRC_NAME': 'name', 'SRC_ORIGIN_NAME': 'schema', 'SRC_OBJECT_NAME': 'table', 'SRC_OBJECT_CONSTRAINT': 'table_constraint', 'SRC_FLAG_ACTIVE': 'active', 'SRC_FLAG_INCR': 'incremental', 'SRC_DATE_CONSTRAINT': 'date_criteria', 'SRC_DATE_LASTUPDATE': 'last_update', 'FORCE_ENCODE': 'force_encode', 'BRONZE_POST_PROCEDURE': 'bronze_post_proc', 'BRONZE_POST_PROCEDURE_ARGS': 'bronze_post_proc_args','LASTUPDATE_PARQUET':'lastupdate_parquet'}
+SOURCE_PPROPERTIES_SYNONYMS = {'SRC_TYPE': 'type', 'SRC_NAME': 'name', 'SRC_ORIGIN_NAME': 'schema', 'SRC_OBJECT_NAME': 'table', 'SRC_OBJECT_CONSTRAINT': 'table_constraint', 'SRC_FLAG_ACTIVE': 'active', 'SRC_FLAG_INCR': 'incremental', 'SRC_DATE_CONSTRAINT': 'date_criteria', 'SRC_DATE_LASTUPDATE': 'last_update', 'FORCE_ENCODE': 'force_encode', 'BRONZE_POST_PROCEDURE': 'bronze_post_proc', 'BRONZE_POST_PROCEDURE_ARGS': 'bronze_post_proc_args','LASTUPDATED_PARQUET':'lastupdated_parquet'}
+INVERTED_SOURCE_PROPERTIES_SYNONYMS = {value: key for key, value in SOURCE_PPROPERTIES_SYNONYMS.items()}
 SourceProperties = namedtuple('SourceProperties',list(SOURCE_PPROPERTIES_SYNONYMS.values()))
 # SourceProperties namedtuple is set into Exploit __init__, based on fields of table used to list sources
 
@@ -213,31 +214,32 @@ class BronzeExploit:
         v_request = ""
         try:
             v_cursor = self.get_db_connection().cursor()
-            v_request = "UPDATE " + self.exploit_loading_table
+            v_request = "UPDATE " + self.exploit_loading_table + " "
             #v_request = "UPDATE " + self.exploit_loading_table + " SET "+p_column_name+" = :1 WHERE SRC_NAME = :2 AND SRC_ORIGIN_NAME = :3 AND SRC_OBJECT_NAME = :4"
-            v_arg_idx = 1
-            for v_column,v_value in p_dict_column_name_value.items():
-                v_request += " SET "+v_column+" =:"+v_arg_idx+","
-                v_arg_idx +=1
-            
+            v_offset = 1
+            v_set = ", ".join([f"SET {column} =:{i+v_offset}" for i, column in enumerate(p_dict_column_name_value.keys())])
+            v_dict_join = {INVERTED_SOURCE_PROPERTIES_SYNONYMS.get('name'):p_source.name,INVERTED_SOURCE_PROPERTIES_SYNONYMS.get('schema'):p_source.schema,INVERTED_SOURCE_PROPERTIES_SYNONYMS.get('table'):p_source.table}
+            v_offset = len(p_dict_column_name_value)+1
+            v_join= "AND ".join([f"{column} =:{i+v_offset} " for i, column in enumerate(v_dict_join.keys())])
+            v_bindvars = tuple(p_dict_column_name_value.valuess()+v_dict_join.values())
+            v_request = v_request + v_set + " WHERE "+ v_join
             # update last date or creation date (depends on table)
-            message = "Updating {} = {} on table {}".format(p_column_name,pValue,self.exploit_loading_table)
+            message = "Updating request : {} Bind Values :  {}".format(self.exploit_loading_table,v_request,v_bindvars)
             if self.verbose:
                 self.verbose.log(datetime.now(tz=timezone.utc), "SET_LASTUPDATE", "START", log_message=message,
                             log_request=v_request)
-            bindvars = (pValue,p_source.name,p_source.schema,p_source.table)
-            v_cursor.execute(v_request,bindvars)
+            v_cursor.execute(v_request,v_bindvars)
             self.get_db_connection().commit()
             v_cursor.close()
             return True
         except oracledb.Error as v_err:
-            v_error = "ERROR {} with values {}".format(v_request,bindvars)
+            v_error = "ERROR {} with values {}".format(v_request,v_bindvars)
             if self.verbose:
                 self.verbose.log(datetime.now(tz=timezone.utc), "UPDATE_EXPLOIT", v_error,log_message='Oracle DB error : {}'.format(str(v_err)))
             self.logger.log(pError=v_err, pAction=v_error)
             return False
         except Exception as v_err:
-            v_error = "ERROR {} with values {}".format(v_request, bindvars)
+            v_error = "ERROR {} with values {}".format(v_request, v_bindvars)
             if self.verbose:
                 self.verbose.log(datetime.now(tz=timezone.utc), "UPDATE_EXPLOIT", v_error,str(v_err))
             self.logger.log(pError=v_err, pAction=v_error)
@@ -282,8 +284,8 @@ class BronzeLogger():
         return self.logger_oracledb_connection
     
     def link_to_bronze_source(self,pBronze_source):
-        self.logger_linked_bronze_source = pBronze_source
-        self.logger_linked_bronze_config = pBronze_source.get_bronze_config()
+        self.logger_linked_bronze_source:BronzeSourceBuilder = pBronze_source
+        self.logger_linked_bronze_config:BronzeConfig = pBronze_source.get_bronze_config()
         self.logger_env = self.logger_linked_bronze_source.get_bronze_properties().environment
         vSourceProperties = self.logger_linked_bronze_source.get_source_properties()
         self._init_logger()
@@ -296,31 +298,35 @@ class BronzeLogger():
         return self.logger_table_name
 
     def log(self,pAction="COMPLETED",pError=None):
-        vAction = pAction
+        v_action = pAction
         if pError:
-            error_type = type(pError).__name__
-            error_message = str(pError)
+            v_error_type = type(pError).__name__
+            v_error_message = str(pError)
             # if error message contains warning then change action -> WARNING
-            if re.match("WARNING",error_message.upper()):
+            if re.match("WARNING",v_error_message.upper()):
                 VAction = "WARNING"
         else:
-            error_type = ''
-            error_message = ''
+            v_error_type = ''
+            v_error_message = ''
         if self.logger_linked_bronze_source:
-            vSourceDurationsStats = self.logger_linked_bronze_source.get_durations_stats()
-            vSourceRowsStats = self.logger_linked_bronze_source.get_rows_stats()
-            vSourceParquetsStats = self.logger_linked_bronze_source.get_parquets_stats()
-            vSourceProperties = self.logger_linked_bronze_source.get_source_properties()
-
+            v_source_durations_stats = self.logger_linked_bronze_source.get_durations_stats()
+            v_source_rows_stats = self.logger_linked_bronze_source.get_rows_stats()
+            v_source_parquets_stats = self.logger_linked_bronze_source.get_parquets_stats()
+            v_source_properties = self.logger_linked_bronze_source.get_source_properties()
+            v_source_lastupdated_row = self.logger_linked_bronze_source.get_bronze_lastupdated_row().strftime("%Y-%m-%d %H:%M:%S")
+            v_source_bucket_parquet_files_sent = list_to_string(self.logger_linked_bronze_source.get_bucket_parquet_files_sent())
+            
             self.instance_bronzeloggerproperties = self.instance_bronzeloggerproperties._replace(
-                REQUEST=vSourceProperties.request, ACTION=vAction, END_TIME=datetime.now(tz=timezone.utc),ERROR_TYPE=error_type,ERROR_MESSAGE=error_message,
-                STAT_ROWS_COUNT=vSourceRowsStats[0], STAT_ROWS_SIZE=vSourceRowsStats[1],
-                STAT_SENT_PARQUETS_COUNT=vSourceParquetsStats[0], STAT_SENT_PARQUETS_SIZE=vSourceParquetsStats[1],
-                STAT_TOTAL_DURATION=vSourceDurationsStats[0], STAT_FETCH_DURATION=vSourceDurationsStats[1],
-                STAT_UPLOAD_PARQUETS_DURATION=vSourceDurationsStats[2], STAT_TEMP_PARQUETS_COUNT=vSourceParquetsStats[2])
+                REQUEST=v_source_properties.request, ACTION=v_action, END_TIME=datetime.now(tz=timezone.utc),ERROR_TYPE=v_error_type,ERROR_MESSAGE=v_error_message,
+                STAT_ROWS_COUNT=v_source_rows_stats[0], STAT_ROWS_SIZE=v_source_rows_stats[1],
+                STAT_SENT_PARQUETS_COUNT=v_source_parquets_stats[0], STAT_SENT_PARQUETS_SIZE=v_source_parquets_stats[1],
+                STAT_TOTAL_DURATION=v_source_durations_stats[0], STAT_FETCH_DURATION=v_source_durations_stats[1],
+                STAT_UPLOAD_PARQUETS_DURATION=v_source_durations_stats[2], STAT_TEMP_PARQUETS_COUNT=v_source_parquets_stats[2],
+                ATTRIBUTE1=v_source_lastupdated_row,
+                ATTRIBUTE6=v_source_bucket_parquet_files_sent)
         else:
             self.instance_bronzeloggerproperties = self.instance_bronzeloggerproperties._replace(
-                ACTION=vAction, END_TIME=datetime.now(tz=timezone.utc),ERROR_TYPE=error_type,ERROR_MESSAGE=error_message)
+                ACTION=v_action, END_TIME=datetime.now(tz=timezone.utc),ERROR_TYPE=v_error_type,ERROR_MESSAGE=v_error_message)
             
         self.__insertlog__()
 
@@ -877,7 +883,8 @@ class BronzeSourceBuilder:
         self.parquet_file_list = []  # format list : [{"file_name":parquet_file_name1,"source_file":source_file1},{"file_name":parquet_file_name2,"source_file":source_file2},...]
         # list of parquet file to send
         self.parquet_file_list_tosend = [] # # format list : [{"file_name":parquet_file_name1,"source_file":source_file1},{"file_name":parquet_file_name2,"source_file":source_file2},...]
-        # send parquet files to OCI bucket
+        # sent parquet files to OCI bucket
+        self.bucket_list_parquet_files_sent = []
         # Format the timestamp as a string with a specific format (Year-Month-Day)
         self.today = datetime.now(tz=timezone.utc)
         self.year = self.today.strftime("%Y")
@@ -887,6 +894,9 @@ class BronzeSourceBuilder:
         self.bronze_table = "" # defined into sub-class
         self.bronze_schema = "BRONZE_" + self.env
 
+        # Date of last update row
+        self.bronze_lastupdated_row = None
+        
         self.total_sent_parquets = 0 # Total number of parquet files sent to bucket
         self.total_sent_parquets_size = 0 # total size of parquet files
         self.total_temp_parquets = 0 # total of temporary parquets created when fetching data, before merging for no incremental table
@@ -1175,10 +1185,15 @@ class BronzeSourceBuilder:
         return self.logger
 
     def get_bronze_lastupdated_row(self):
-        return self.get_bronzedb_manager().get_bronze_lastupdated_row(self.bronze_table, self.bronze_source_properties.date_criteria)
-
+        if not self.bronze_lastupdated_row:
+            self.bronze_lastupdated_row = self.get_bronzedb_manager().get_bronze_lastupdated_row(self.bronze_table, self.bronze_source_properties.date_criteria)
+        return self.bronze_lastupdated_row
+    
     def get_bronze_bucket_settings(self):
         return self.bronze_bucket_settings
+    
+    def get_bucket_parquet_files_sent(self):
+        return self.bucket_list_parquet_files_sent
     
     def send_parquet_files_to_oci(self,verbose=None):
         self.upload_parquets_start = datetime.now()
@@ -1228,6 +1243,7 @@ class BronzeSourceBuilder:
                     if verbose:
                         verbose.log(datetime.now(tz=timezone.utc),"UPLOAD_PARQUET","START",log_message=message)
                     bucket.put_file(bucket_file_name, source_file)
+                    self.bucket_list_parquet_files_sent.append(bucket_file_name) 
         except Exception as err:
             self.__update_sent_parquets_stats()
             vError = "ERROR Uplaoding parquet file {0} into bucket {1}, {2}".format(source_file,self.bronze_bucket_proxy.get_bucket_name(),bucket_file_name)
@@ -1277,51 +1293,56 @@ class BronzeSourceBuilder:
 
 class BronzeGenerator:
     def __init__(self, pBronzeSourceBuilder:BronzeSourceBuilder, pBronzeExploit:BronzeExploit,pLogger:BronzeLogger=None):
-        self.__bronzesourcebuilder__ = pBronzeSourceBuilder
-        self.__bronzeexploit__ = pBronzeExploit
-        self.__logger__ = pLogger
+        self.v_bronzesourcebuilder = pBronzeSourceBuilder
+        self.v_bronzeexploit = pBronzeExploit
+        self.v_logger = pLogger
 
     def generate(self,verbose=None):
         while True:
             generate_result = False
             # 1 Fetch data from source
-            self.__bronzesourcebuilder__.pre_fetch_source(verbose)
-            if not self.__bronzesourcebuilder__.fetch_source(verbose):
+            self.v_bronzesourcebuilder.pre_fetch_source(verbose)
+            if not self.v_bronzesourcebuilder.fetch_source(verbose):
                 break
 
             # 2 Upload parquets files to bucket
-            if not self.__bronzesourcebuilder__.send_parquet_files_to_oci(verbose):
+            if not self.v_bronzesourcebuilder.send_parquet_files_to_oci(verbose):
                 break
 
             # 3 - Create/Update external table into Autonomous
-            if not self.__bronzesourcebuilder__.update_bronze_schema(verbose):
+            if not self.v_bronzesourcebuilder.update_bronze_schema(verbose):
                 break
 
             # 4 Update "Last_update" for incremental table integration
-            vSourceProperties = self.__bronzesourcebuilder__.get_source_properties()
+            vSourceProperties = self.v_bronzesourcebuilder.get_source_properties()
             if vSourceProperties.incremental:
-                last_date = self.__bronzesourcebuilder__.get_bronze_lastupdated_row()
+                v_lastupdate_date = self.v_bronzesourcebuilder.get_bronze_lastupdated_row()
+                v_list = self.v_bronzesourcebuilder.get_bucket_parquet_files_sent()
+                if v_list:
+                    v_last_bucket_parquet_file_sent = v_list[-1]
+                else:
+                    v_last_bucket_parquet_file_sent = None
                 #print(last_date, type(last_date))
-
-                if not self.__bronzeexploit__.update_exploit(vSourceProperties,"SRC_DATE_LASTUPDATE", last_date):
+                v_dict_update_exploit = {INVERTED_SOURCE_PROPERTIES_SYNONYMS.get('last_update','last_update'):v_lastupdate_date,INVERTED_SOURCE_PROPERTIES_SYNONYMS.get('lastupdated_parquet','lastupdated_parquet'):v_last_bucket_parquet_file_sent}
+                if not self.v_bronzeexploit.update_exploit(vSourceProperties,v_dict_update_exploit):
                     break
-            vPost_proc_param = self.__bronzesourcebuilder__.get_post_procedure_parameters()
+            vPost_proc_param = self.v_bronzesourcebuilder.get_post_procedure_parameters()
             if vPost_proc_param:
-                vBronze_table = self.__bronzesourcebuilder__.get_bronze_properties.table
-                vResult_post_proc = self.__bronzesourcebuilder__.get_bronzedb_manager().run_proc(vPost_proc_param[0],*vPost_proc_param[1],p_verbose=verbose,p_proc_exe_context=vBronze_table)
+                vBronze_table = self.v_bronzesourcebuilder.get_bronze_properties.table
+                vResult_post_proc = self.v_bronzesourcebuilder.get_bronzedb_manager().run_proc(vPost_proc_param[0],*vPost_proc_param[1],p_verbose=verbose,p_proc_exe_context=vBronze_table)
                 if not vResult_post_proc:
                     break
             
             generate_result = True
             break
-        self.__bronzesourcebuilder__.update_total_duration()
+        self.v_bronzesourcebuilder.update_total_duration()
         if generate_result:
             if verbose:
                 #print(vSourceProperties)
                 message = "Integrating {3} rows from {0} {1} {2} in {4}".format(vSourceProperties.name, vSourceProperties.schema,
-                                                                         vSourceProperties.table, self.__bronzesourcebuilder__.get_rows_stats()[0],self.__bronzesourcebuilder__.get_durations_stats()[0])
+                                                                         vSourceProperties.table, self.v_bronzesourcebuilder.get_rows_stats()[0],self.v_bronzesourcebuilder.get_durations_stats()[0])
                 verbose.log(datetime.now(tz=timezone.utc), "INTEGRATE", "END", log_message=message)
-            if self.__logger__:
-                self.__logger__.log()
+            if self.v_logger:
+                self.v_logger.log()
         return generate_result
 
