@@ -325,7 +325,7 @@ class BronzeLogger():
 class BronzeDbManager:
     # object to manage connection to bronze database
     # provide main functions to manage Bronze DB activities
-    gather_lh2_tables_stats = False
+    gather_lh2_bronze_tables_stats_status = False
     
     def __init__(self, pBronze_config:BronzeConfig,pLogger:BronzeLogger):
         self.bronzeDb_Manager_config = pBronze_config
@@ -354,7 +354,7 @@ class BronzeDbManager:
 
         self.bronzeDb_Manager_db_connection = self.get_db().create_db_connection(self.bronzeDb_Manager_Database_param)
     
-        self.df_tables_stats = None
+        self.df_bronze_tables_stats = None
     
     def __init_garbage_options__(self):
         self.garbage_options = get_parser_config_settings("garbage_options")(self.bronzeDb_Manager_config.get_configuration_file(),"garbage_options")
@@ -364,19 +364,6 @@ class BronzeDbManager:
             self.gather_lh2_tables_stats_proc_args = self.gather_lh2_tables_stats_proc_args.append(self.garbage_options.PLSQL_gather_lh2_tables_stats_proc_args.split(','))
         self.lh2_tables_tablename = self.garbage_options.LH2_TABLES_TABLENAME
         self.filestorage_for_excel_export = self.garbage_options.filestorage_for_excel_export
-        
-    def get_garbage_options(self):
-        return self.garbage_options
-    
-    def get_gather_lh2_tables_stats_status(self):
-        if self.df_tables_stats is None:
-            return False
-        return True
-    def get_lh2_bronze_tables(self):
-        return self.df_tables_stats
-    
-    def get_lh2_bronze_buckets(self):
-        return self.df_bronze_buckets_parquets
     
     def get_db(self)->absdb:
         return self.bronzeDb_Manager_db
@@ -447,11 +434,26 @@ class BronzeDbManager:
         
     def run_post_proc(self,p_verbose=None):
        return self.run_proc(self.post_proc,*self.post_proc_args,p_verbose=p_verbose,p_proc_exe_context='GLOBAL')
-   
-    def get_lh2_tables_stats(self):
-        return self.df_tables_stats
     
-    def gather_lh2_tables_stats(self,p_count_rows=False,p_verbose=None):
+    def get_garbage_options(self):
+        return self.garbage_options
+    
+    def get_gather_lh2_tables_stats_status(self):
+        return self.gather_lh2_bronze_tables_stats_status
+    
+    def get_lh2_bronze_tables_stats(self):
+        return self.df_bronze_tables_stats
+    
+    def get_lh2_bronze_buckets(self):
+        return self.df_bronze_buckets_parquets
+    
+    def gather_lh2_bronze_tables_stats(self,p_refresh_stats=True,p_count_rows=False,p_verbose=None):
+        # Run PL/SQL procedure to collect LH2 bronze tables stats for current environment, from Oracle database
+        # if p_refresh_stats is True, refresh parquets files lists for every external tables 
+        # (and identify zombies parquets files not associated to any external table)
+        # if p_count_row, run a select count(1) from table to get number of row. 
+        # this option could be long
+        
         def __match_files_to_tables__(p_df, p_list_file_objects):
             # Function to match files to external tables and handle "zombies"
             # p_df is a dataframe mapping LH2_TABLES with same columns - Contains list of external tables 
@@ -516,8 +518,7 @@ class BronzeDbManager:
             if not v_result_run_proc:
                 raise Exception("ERROR, Executing Procedure {0}({1})".format(self.gather_lh2_tables_stats_proc,self.gather_lh2_tables_stats_proc_args))
             
-        # Execute a SQL query to fetch list of external tables of bronze layer
-            
+            # Execute a SQL query to fetch list of external tables of bronze layer
             v_cursor = self.get_db_connection().cursor()
             v_sql = "select * from " + self.lh2_tables_tablename + " WHERE ENV = \'"+ self.bronzeDbManager_env +"\' AND TABLE_TYPE like \'External%\' ORDER BY OWNER,TABLE_NAME"
             v_message = "Fetch list of external tables of bronze layer {}".format(v_sql)
@@ -528,79 +529,85 @@ class BronzeDbManager:
             v_df_lh2_tables.columns = [x[0] for x in v_cursor.description]
             v_cursor.close()
             
-            if p_count_rows:
-                # count rows for each tables 
-                """
-                v_message = "Count rows for  list of external tables of bronze layer {}".format(self.bronzeDbManager_env)
+            # test if need to refresh parquet files stats
+            if not p_refresh_stats:
+                self.df_bronze_tables_stats = v_df_lh2_tables
+            else:
+                if p_count_rows:
+                    # count rows for each tables 
+                    """
+                    v_message = "Count rows for  list of external tables of bronze layer {}".format(self.bronzeDbManager_env)
+                    if p_verbose:
+                        p_verbose.log(datetime.now(tz=timezone.utc),"GATHER_BRONZE_STATS","RUNNING",log_message=v_message)
+                    """
+                    for v_index, v_row in v_df_lh2_tables.iterrows():
+                        v_table_data = v_row.to_dict()
+                        v_table_name = v_table_data['TABLE_NAME']
+                        #v_num_rows = self.get_db().get_num_rows(v_table_name)
+                        v_num_rows = 0
+                        v_df_lh2_tables.at[v_index,'NUM_ROWS'] = v_num_rows
+                
+                # Get buckets used for bronze layers
+                # Get distinct bucket names from the column
+                v_bronze_buckets_array = v_df_lh2_tables['BUCKET'].unique()
+                # Create a new DataFrame from the distinct values
+                self.df_bronze_buckets_parquets = pd.DataFrame(v_bronze_buckets_array,columns=['BUCKET'])
+                # Add a column 'LIST_PARQUETS' with default values (here, empty lists)
+                self.df_bronze_buckets_parquets['BUCKET_LIST_PARQUETS'] = [[] for _ in range(len(self.df_bronze_buckets_parquets))]
+                
+                v_message = "Buckets used into bronze layer {}".format(str(self.df_bronze_buckets_parquets))
                 if p_verbose:
-                    p_verbose.log(datetime.now(tz=timezone.utc),"GATHER_BRONZE_STATS","RUNNING",log_message=v_message)
-                """
-                for v_index, v_row in v_df_lh2_tables.iterrows():
-                    v_table_data = v_row.to_dict()
-                    v_table_name = v_table_data['TABLE_NAME']
-                    #v_num_rows = self.get_db().get_num_rows(v_table_name)
-                    v_num_rows = 0
-                    v_df_lh2_tables.at[v_index,'NUM_ROWS'] = v_num_rows
-            
-            # Get buckets used for bronze layers
-            # Get distinct bucket names from the column
-            v_bronze_buckets_array = v_df_lh2_tables['BUCKET'].unique()
-            # Create a new DataFrame from the distinct values
-            self.df_bronze_buckets_parquets = pd.DataFrame(v_bronze_buckets_array,columns=['BUCKET'])
-            # Add a column 'LIST_PARQUETS' with default values (here, empty lists)
-            self.df_bronze_buckets_parquets['BUCKET_LIST_PARQUETS'] = [[] for _ in range(len(self.df_bronze_buckets_parquets))]
-            
-            v_message = "Buckets used into bronze layer {}".format(str(self.df_bronze_buckets_parquets))
-            if p_verbose:
-                    p_verbose.log(datetime.now(tz=timezone.utc),"GATHER_BRONZE_STATS","RUNNING",log_message=v_message)
-            
-            v_bronze_bucket_proxy = BronzeBucketProxy(self.bronzeDbManager_env,self.bronzeDb_Manager_config)
-            # Iterate over the 'BUCKET' column and change the value of 'LIST_PARQUETS' with list of objects name into each bucket
-            for v_index, v_row in self.df_bronze_buckets_parquets.iterrows():
-                v_bucket_name = v_row['BUCKET']
-                v_bronze_bucket_proxy.set_bucket_by_name(v_bucket_name)
-                v_bucket:AbsBucket = v_bronze_bucket_proxy.get_bucket()
-                v_bucket_list_objects = v_bucket.list_objects()
-                self.df_bronze_buckets_parquets.at[v_index, 'BUCKET_LIST_PARQUETS'] = [{'name':o.name,'size_mb':int(o.size or 0)/1024} for o in v_bucket_list_objects]
-    
-            v_message = "Bucket files inventory done {}".format(str(self.df_bronze_buckets_parquets))
-            if p_verbose:
-                    p_verbose.log(datetime.now(tz=timezone.utc),"GATHER_BRONZE_STATS","RUNNING",log_message=v_message)
-                    
-            # iterate Buckets and check for each external tables associated to the bucket, which bucket files are associated to the table
-            # Bucket files not associated to any table, will associated to a "zombies" table        
-            v_df_updated_tables_stats = pd.DataFrame()
-            for v_index,v_row in self.df_bronze_buckets_parquets.iterrows():
-                v_bucket_name = v_row['BUCKET']
-                v_df_bucket_tables = v_df_lh2_tables[v_df_lh2_tables['BUCKET'] == v_bucket_name]
-                v_message = "Check which files of bucket {0} are associated to external tables.".format(v_bucket_name)
+                        p_verbose.log(datetime.now(tz=timezone.utc),"GATHER_BRONZE_STATS","RUNNING",log_message=v_message)
+                
+                v_bronze_bucket_proxy = BronzeBucketProxy(self.bronzeDbManager_env,self.bronzeDb_Manager_config)
+                # Iterate over the 'BUCKET' column and change the value of 'LIST_PARQUETS' with list of objects name into each bucket
+                for v_index, v_row in self.df_bronze_buckets_parquets.iterrows():
+                    v_bucket_name = v_row['BUCKET']
+                    v_bronze_bucket_proxy.set_bucket_by_name(v_bucket_name)
+                    v_bucket:AbsBucket = v_bronze_bucket_proxy.get_bucket()
+                    v_bucket_list_objects = v_bucket.list_objects()
+                    self.df_bronze_buckets_parquets.at[v_index, 'BUCKET_LIST_PARQUETS'] = [{'name':o.name,'size_mb':int(o.size or 0)/1024} for o in v_bucket_list_objects]
+        
+                v_message = "Bucket files inventory done {}".format(str(self.df_bronze_buckets_parquets))
                 if p_verbose:
-                    p_verbose.log(datetime.now(tz=timezone.utc),"GATHER_BRONZE_STATS","RUNNING",log_message=v_message)
-                v_df_updated_bucket_tables = __match_files_to_tables__(v_df_bucket_tables,v_row['BUCKET_LIST_PARQUETS'])
-                v_df_updated_tables_stats = pd.concat([v_df_updated_tables_stats,v_df_updated_bucket_tables], ignore_index=True)
-            self.df_tables_stats = v_df_updated_tables_stats.fillna(0)
-            v_message = "Files are associated to external tables"
-            if p_verbose:
-                p_verbose.log(datetime.now(tz=timezone.utc),"GATHER_BRONZE_STATS","END",log_message=v_message)
+                        p_verbose.log(datetime.now(tz=timezone.utc),"GATHER_BRONZE_STATS","RUNNING",log_message=v_message)
+                        
+                # iterate Buckets and check for each external tables associated to the bucket, which bucket files are associated to the table
+                # Bucket files not associated to any table, will associated to a "zombies" table        
+                v_df_updated_tables_stats = pd.DataFrame()
+                for v_index,v_row in self.df_bronze_buckets_parquets.iterrows():
+                    v_bucket_name = v_row['BUCKET']
+                    v_df_bucket_tables = v_df_lh2_tables[v_df_lh2_tables['BUCKET'] == v_bucket_name]
+                    v_message = "Check which files of bucket {0} are associated to external tables.".format(v_bucket_name)
+                    if p_verbose:
+                        p_verbose.log(datetime.now(tz=timezone.utc),"GATHER_BRONZE_STATS","RUNNING",log_message=v_message)
+                    v_df_updated_bucket_tables = __match_files_to_tables__(v_df_bucket_tables,v_row['BUCKET_LIST_PARQUETS'])
+                    v_df_updated_tables_stats = pd.concat([v_df_updated_tables_stats,v_df_updated_bucket_tables], ignore_index=True)
+                self.df_bronze_tables_stats = v_df_updated_tables_stats.fillna(0)
+                self.gather_lh2_bronze_tables_stats_status = True
+                v_message = "Files are associated to external tables"
+                if p_verbose:
+                    p_verbose.log(datetime.now(tz=timezone.utc),"GATHER_BRONZE_STATS","END",log_message=v_message)
             
+            # end of gather process    
             v_message = "COMPLETED gather Bronze tables stats for {}".format(self.get_bronze_database_name())
             if p_verbose:
                 p_verbose.log(datetime.now(tz=timezone.utc),"GATHER_BRONZE_STATS","END",log_message=v_message)
-            return self.df_tables_stats
+            return True
         except oracledb.Error as v_err:
             v_error= "ERROR Gather Bronze tables stats for environment {}".format(self.bronzeDbManager_env)
             if p_verbose:
                 p_verbose.log(datetime.now(tz=timezone.utc), "GATHER_BRONZE_STATS", v_error,log_message='Oracle DB error : {}'.format(str(v_err)))
             self.bronzeDb_Manager_logger.log(pError=v_err, pAction=v_error)
-            return None
+            return False
         except Exception as v_err:
             v_error= "ERROR Gather Bronze tables stats for environment {}".format(self.bronzeDbManager_env)
             if p_verbose:
                 p_verbose.log(datetime.now(tz=timezone.utc), "GATHER_BRONZE_STATS", v_error,log_message=str(v_err))
             self.bronzeDb_Manager_logger.log(pError=v_err, pAction=v_error)
-            return None        
+            return False       
     
-    def update_lh2_tables_stats(self,p_verbose=None):
+    def update_lh2_bronze_tables_stats(self,p_verbose=None):
         # update databse LH2_tables with updated stats
         
         if not self.get_gather_lh2_tables_stats_status():
@@ -610,7 +617,7 @@ class BronzeDbManager:
             if p_verbose:
                 p_verbose.log(datetime.now(tz=timezone.utc),"UPDATE_BRONZE_STATS","START",log_message=v_message)
             v_cursor = self.get_db_connection().cursor()
-            for v_index, v_row in self.df_tables_stats.iterrows():
+            for v_index, v_row in self.df_bronze_tables_stats.iterrows():
                 v_rown_list_parquets = list_to_string(v_row['LIST_PARQUETS'])
                 v_sql = "UPDATE " + self.lh2_tables_tablename + " SET NUM_ROWS = :1, SIZE_MB = :2, NUM_PARQUETS = :3, LIST_PARQUETS = :4 WHERE OWNER = :5 AND TABLE_NAME = :6"
                 v_bindvars = (int(v_row['NUM_ROWS'] or 0), int(v_row['SIZE_MB'] or 0), int(v_row['NUM_PARQUETS'] or 0),v_rown_list_parquets, v_row['OWNER'], v_row['TABLE_NAME'])
@@ -641,10 +648,10 @@ class BronzeDbManager:
             self.bronzeDb_Manager_logger.log(pError=v_err, pAction=v_error)
             return False  
         
-    def to_excel_lh2_tables_stats(self,p_excel_filename="lh2_bronze_tables_stats.xlsx",p_verbose=None):
+    def to_excel_lh2_bronze_tables_stats(self,p_excel_filename="lh2_bronze_tables_stats.xlsx",p_verbose=None):
         #Export LH2 bronze tables stats to Excel file
         
-        if not self.get_gather_lh2_tables_stats_status():
+        if self.get_lh2_bronze_tables_stats() is None:
             return None
         try:
             # Create access to filestorage where to export excel file
@@ -656,7 +663,7 @@ class BronzeDbManager:
             v_message = "Exporting to temporay Excel file {} :".format(v_excel_file_tmp)
             if p_verbose:
                 p_verbose.log(datetime.now(tz=timezone.utc), "EXPORT_BRONZE_STATS","START",log_message=v_message)
-            v_df_converted_lists_to_strings = df_convert_lists_to_strings(self.df_tables_stats)
+            v_df_converted_lists_to_strings = df_convert_lists_to_strings(self.df_bronze_tables_stats)
             v_df_converted_lists_to_strings.to_excel(v_excel_file_tmp,index=False)
             
             # copy generated Excel to filestorage
@@ -703,18 +710,18 @@ class BronzeDbManager:
             self.bronzeDb_Manager_logger.log(pError=v_err, pAction=v_error)
             return False
     
-    def garbage_collector(self,p_verbose=None):
+    def bronze_garbage_collector(self,p_verbose=None):
         #Garbage collector to delete parquet files not associated to any external tables (zombies parquet files)
         
         if not self.get_gather_lh2_tables_stats_status():
-                return True
+                return False
         try:
             v_message = "Start garbage collector for {} ".format(self.bronzeDbManager_env)
             if p_verbose:
                 p_verbose.log(datetime.now(tz=timezone.utc), "GARBAGE_COLLECTOR","START",log_message=v_message)
             # Filter on ZOMBIES TABLE
-            v_mask = self.df_tables_stats['TABLE_NAME'] == ZOMBIES_TABLE_NAME
-            for v_index,v_row in self.df_tables_stats[v_mask].iterrows():
+            v_mask = self.df_bronze_tables_stats['TABLE_NAME'] == ZOMBIES_TABLE_NAME
+            for v_index,v_row in self.df_bronze_tables_stats[v_mask].iterrows():
                 v_bucket_name = v_row['BUCKET']
                 v_parquet_list = v_row['LIST_PARQUETS']
                 v_result = self.__delete_parquet_files__(p_bucket_name=v_bucket_name,p_parquet_list=v_parquet_list,p_verbose=p_verbose)
@@ -732,7 +739,7 @@ class BronzeDbManager:
             self.bronzeDb_Manager_logger.log(pError=v_err, pAction=v_error)
             return False         
     
-    def drop_table(self,p_table_name,p_verbose=None):
+    def bronze_drop_table(self,p_table_name,p_verbose=None):
         # drop bronze table : drop external table into database and delete associated parquet files
         
         if not self.get_gather_lh2_tables_stats_status():
@@ -748,8 +755,8 @@ class BronzeDbManager:
                     p_verbose.log(datetime.now(tz=timezone.utc), "DROP_TABLE","START",log_message=v_message)
                 return True
             # Filter on table name  and ower = db user name
-            v_mask = (self.df_tables_stats['OWNER'] == self.get_db_username()) & (self.df_tables_stats['TABLE_NAME'] == p_table_name)
-            for v_index,v_row in self.df_tables_stats[v_mask].iterrows():
+            v_mask = (self.df_bronze_tables_stats['OWNER'] == self.get_db_username()) & (self.df_bronze_tables_stats['TABLE_NAME'] == p_table_name)
+            for v_index,v_row in self.df_bronze_tables_stats[v_mask].iterrows():
                 # Drop table into database
                 
                 v_result_run_proc = self.run_proc('LH2_ADMIN_BRONZE_PKG.DROP_TABLE_PROC',*[p_table_name],p_verbose=p_verbose,p_proc_exe_context=p_table_name)
