@@ -29,7 +29,7 @@ PARQUET_FILE_EXTENSION = ".parquet"
 DBFACTORY = NLSDbFactory()
 FILESTORAGEFACTORY = NLSFileStorageFactory()
 
-SOURCE_PPROPERTIES_SYNONYMS = {'SRC_TYPE': 'type', 'SRC_NAME': 'name', 'SRC_ORIGIN_NAME': 'schema', 'SRC_OBJECT_NAME': 'table', 'SRC_OBJECT_CONSTRAINT': 'table_constraint', 'SRC_FLAG_ACTIVE': 'active', 'SRC_FLAG_INCR': 'incremental', 'SRC_DATE_CONSTRAINT': 'date_criteria', 'SRC_DATE_LASTUPDATE': 'last_update', 'FORCE_ENCODE': 'force_encode', 'BRONZE_POST_PROCEDURE': 'bronze_post_proc', 'BRONZE_POST_PROCEDURE_ARGS': 'bronze_post_proc_args','LASTUPDATED_PARQUET':'lastupdated_parquet'}
+SOURCE_PPROPERTIES_SYNONYMS = {'SRC_TYPE': 'type', 'SRC_NAME': 'name', 'SRC_ORIGIN_NAME': 'schema', 'SRC_OBJECT_NAME': 'table', 'SRC_OBJECT_CONSTRAINT': 'table_constraint', 'SRC_FLAG_ACTIVE': 'active', 'SRC_FLAG_INCR': 'incremental', 'SRC_DATE_CONSTRAINT': 'date_criteria', 'SRC_DATE_LASTUPDATE': 'last_update', 'FORCE_ENCODE': 'force_encode', 'BRONZE_POST_PROCEDURE': 'bronze_post_proc', 'BRONZE_POST_PROCEDURE_ARGS': 'bronze_post_proc_args','BRONZE_TABLE_NAME':'bronze_table_name','BRONZE_LASTUPLOADED_PARQUET':'bronze_lastuploaded_parquet'}
 INVERTED_SOURCE_PROPERTIES_SYNONYMS = {value: key for key, value in SOURCE_PPROPERTIES_SYNONYMS.items()}
 SourceProperties = namedtuple('SourceProperties',list(SOURCE_PPROPERTIES_SYNONYMS.values()))
 # SourceProperties namedtuple is set into Exploit __init__, based on fields of table used to list sources
@@ -120,7 +120,7 @@ class BronzeExploit:
         v_cursor = self.get_db_connection().cursor()
 
         # drop temporary running loding table or Not (Default) 
-        self.not_drop_running_loading_table = optional_args[EXPLOIT_ARG_NOT_DROP_TEMP_RUNNING_LOADING_TABLE]
+        self.not_drop_running_loading_table = optional_args.get(EXPLOIT_ARG_NOT_DROP_TEMP_RUNNING_LOADING_TABLE,True)
 
         # Create running/temporary List Datasource loading table.
         # Insert list of tables to import
@@ -131,15 +131,15 @@ class BronzeExploit:
         if self.verbose:
             self.verbose.log(datetime.now(tz=timezone.utc), "EXPLOIT", "START", log_message=message)
             
-        if optional_args[EXPLOIT_ARG_LOADING_TABLE]:
+        if optional_args.get(EXPLOIT_ARG_LOADING_TABLE,None):
             self.batch_loading_table = optional_args[EXPLOIT_ARG_LOADING_TABLE]
         else:    
             self.batch_loading_table = self.exploit_loading_table
         
-        v_log_table = optional_args[EXPLOIT_ARG_LOG_TABLE]
+        v_log_table = optional_args.get(EXPLOIT_ARG_LOG_TABLE,None)
         v_interval_start = ''
         v_interval_end = ''
-        if optional_args[EXPLOIT_ARG_RELOAD_ON_ERROR_INTERVAL] :
+        if optional_args.get(EXPLOIT_ARG_RELOAD_ON_ERROR_INTERVAL,None) :
             v_interval_start = optional_args[EXPLOIT_ARG_RELOAD_ON_ERROR_INTERVAL][0].strftime("%Y-%m-%d %H:%M:%S")
             # If end date of intervant not provided, then take Now date
             try:
@@ -210,19 +210,27 @@ class BronzeExploit:
     def get_loading_tables(self):
         return (self.exploit_loading_table,self.exploit_running_loading_table)
 
-    def update_exploit(self,p_source:SourceProperties,p_dict_column_name_value):
+    def update_exploit(self,p_dict_column_name_value,p_source:SourceProperties=None,p_bronze_table_name:str=None):
+        # update exploit table with column and values provided into p_dict_column_name_value {'column1':value1,'column2':value2....}
+        # update is done on Source : Database name, schema, table
         v_request = ""
         try:
             v_cursor = self.get_db_connection().cursor()
+            # build SQL UPDATE SQL request
             v_request = "UPDATE " + self.exploit_loading_table + " "
             #v_request = "UPDATE " + self.exploit_loading_table + " SET "+p_column_name+" = :1 WHERE SRC_NAME = :2 AND SRC_ORIGIN_NAME = :3 AND SRC_OBJECT_NAME = :4"
             v_offset = 1
-            v_set = ", ".join([f"SET {column} =:{i+v_offset}" for i, column in enumerate(p_dict_column_name_value.keys())])
-            v_dict_join = {INVERTED_SOURCE_PROPERTIES_SYNONYMS.get('name'):p_source.name,INVERTED_SOURCE_PROPERTIES_SYNONYMS.get('schema'):p_source.schema,INVERTED_SOURCE_PROPERTIES_SYNONYMS.get('table'):p_source.table}
+            v_set = ", ".join([f"SET {INVERTED_SOURCE_PROPERTIES_SYNONYMS.get(column,column)} =:{i+v_offset}" for i, column in enumerate(p_dict_column_name_value.keys())])
             v_offset = len(p_dict_column_name_value)+1
+            if not p_source:
+                v_dict_join = {INVERTED_SOURCE_PROPERTIES_SYNONYMS.get('name'):p_source.name,INVERTED_SOURCE_PROPERTIES_SYNONYMS.get('schema'):p_source.schema,INVERTED_SOURCE_PROPERTIES_SYNONYMS.get('table'):p_source.table}    
+            if not p_bronze_table_name:
+                v_dict_join = {INVERTED_SOURCE_PROPERTIES_SYNONYMS.get('bronze_table_name'):p_bronze_table_name}
+            
             v_join= "AND ".join([f"{column} =:{i+v_offset} " for i, column in enumerate(v_dict_join.keys())])
             v_bindvars = tuple(p_dict_column_name_value.valuess()+v_dict_join.values())
             v_request = v_request + v_set + " WHERE "+ v_join
+            
             # update last date or creation date (depends on table)
             message = "Updating request : {} Bind Values :  {}".format(self.exploit_loading_table,v_request,v_bindvars)
             if self.verbose:
@@ -790,7 +798,8 @@ class BronzeDbManager:
             v_error= "ERROR Drop table {}.{} ".format(self.get_db_username(),p_table_name)
             if p_verbose:
                 p_verbose.log(datetime.now(tz=timezone.utc), "GARBAGE_COLLECTOR", v_error,log_message=str(v_err))
-            self.bronzeDb_Manager_logger.log(pError=v_err, pAction=v_error)           
+            self.bronzeDb_Manager_logger.log(pError=v_err, pAction=v_error)          
+            return False 
 class BronzeBucketProxy:
     # Class to provide a substitute to manage bronze bucket.
     # add actions to get settings informations to connect to bronze buckets (DEBUG, DEV, STG, PRD)
@@ -1315,20 +1324,27 @@ class BronzeGenerator:
 
             # 4 Update "Last_update" for incremental table integration
             vSourceProperties = self.v_bronzesourcebuilder.get_source_properties()
+            v_dict_update_exploit = dict()
+            # Get bronze table name to update Exploit loading table
+            v_dict_update_exploit['bronze_table_name'] = self.v_bronzesourcebuilder.get_bronze_properties().table
+             # Get last uploaded parquet file to update Exploit loading table
+            v_list = self.v_bronzesourcebuilder.get_bucket_parquet_files_sent()
+            if v_list:
+                v_last_bucket_parquet_file_sent = v_list[-1]
+            else:
+                v_last_bucket_parquet_file_sent = None
+            v_dict_update_exploit['bronze_lastuploaded_parquet'] = v_last_bucket_parquet_file_sent
+             # if incremental integration, get lastupdate date to update Exploit loading table
             if vSourceProperties.incremental:
                 v_lastupdate_date = self.v_bronzesourcebuilder.get_bronze_lastupdated_row()
-                v_list = self.v_bronzesourcebuilder.get_bucket_parquet_files_sent()
-                if v_list:
-                    v_last_bucket_parquet_file_sent = v_list[-1]
-                else:
-                    v_last_bucket_parquet_file_sent = None
                 #print(last_date, type(last_date))
-                v_dict_update_exploit = {INVERTED_SOURCE_PROPERTIES_SYNONYMS.get('last_update','last_update'):v_lastupdate_date,INVERTED_SOURCE_PROPERTIES_SYNONYMS.get('lastupdated_parquet','lastupdated_parquet'):v_last_bucket_parquet_file_sent}
-                if not self.v_bronzeexploit.update_exploit(vSourceProperties,v_dict_update_exploit):
-                    break
+                v_dict_update_exploit['last_update'] = v_lastupdate_date
+            if not self.v_bronzeexploit.update_exploit(v_dict_update_exploit,p_source=vSourceProperties):
+                break
+            # Run Post integration PLSQL procedure for current source
             vPost_proc_param = self.v_bronzesourcebuilder.get_post_procedure_parameters()
             if vPost_proc_param:
-                vBronze_table = self.v_bronzesourcebuilder.get_bronze_properties.table
+                vBronze_table = self.v_bronzesourcebuilder.get_bronze_properties().table
                 vResult_post_proc = self.v_bronzesourcebuilder.get_bronzedb_manager().run_proc(vPost_proc_param[0],*vPost_proc_param[1],p_verbose=verbose,p_proc_exe_context=vBronze_table)
                 if not vResult_post_proc:
                     break
