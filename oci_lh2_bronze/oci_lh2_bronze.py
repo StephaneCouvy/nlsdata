@@ -29,7 +29,7 @@ PARQUET_FILE_EXTENSION = ".parquet"
 DBFACTORY = NLSDbFactory()
 FILESTORAGEFACTORY = NLSFileStorageFactory()
 
-SOURCE_PPROPERTIES_SYNONYMS = {'SRC_TYPE': 'type', 'SRC_NAME': 'name', 'SRC_ORIGIN_NAME': 'schema', 'SRC_OBJECT_NAME': 'table', 'SRC_OBJECT_CONSTRAINT': 'table_constraint', 'SRC_FLAG_ACTIVE': 'active', 'SRC_FLAG_INCR': 'incremental', 'SRC_DATE_CONSTRAINT': 'date_criteria', 'SRC_DATE_LASTUPDATE': 'last_update', 'FORCE_ENCODE': 'force_encode', 'BRONZE_POST_PROCEDURE': 'bronze_post_proc', 'BRONZE_POST_PROCEDURE_ARGS': 'bronze_post_proc_args','BRONZE_TABLE_NAME':'bronze_table_name','BRONZE_LASTUPLOADED_PARQUET':'bronze_lastuploaded_parquet'}
+SOURCE_PPROPERTIES_SYNONYMS = {'SRC_TYPE': 'type', 'SRC_NAME': 'name', 'SRC_ORIGIN_NAME': 'schema', 'SRC_OBJECT_NAME': 'table', 'SRC_OBJECT_CONSTRAINT': 'table_constraint', 'SRC_FLAG_ACTIVE': 'active', 'SRC_FLAG_INCR': 'incremental', 'SRC_DATE_CONSTRAINT': 'date_criteria', 'SRC_DATE_LASTUPDATE': 'last_update', 'FORCE_ENCODE': 'force_encode', 'BRONZE_POST_PROCEDURE': 'bronze_post_proc', 'BRONZE_POST_PROCEDURE_ARGS': 'bronze_post_proc_args','BRONZE_TABLE_NAME':'bronze_table_name','BRONZE_LASTUPLOADED_PARQUET':'lastuploaded_parquet'}
 INVERTED_SOURCE_PROPERTIES_SYNONYMS = {value: key for key, value in SOURCE_PPROPERTIES_SYNONYMS.items()}
 SourceProperties = namedtuple('SourceProperties',list(SOURCE_PPROPERTIES_SYNONYMS.values()))
 # SourceProperties namedtuple is set into Exploit __init__, based on fields of table used to list sources
@@ -222,17 +222,17 @@ class BronzeExploit:
             v_offset = 1
             v_set = ", ".join([f"SET {INVERTED_SOURCE_PROPERTIES_SYNONYMS.get(column,column)} =:{i+v_offset}" for i, column in enumerate(p_dict_column_name_value.keys())])
             v_offset = len(p_dict_column_name_value)+1
-            if not p_source:
+            if p_source:
                 v_dict_join = {INVERTED_SOURCE_PROPERTIES_SYNONYMS.get('name'):p_source.name,INVERTED_SOURCE_PROPERTIES_SYNONYMS.get('schema'):p_source.schema,INVERTED_SOURCE_PROPERTIES_SYNONYMS.get('table'):p_source.table}    
-            if not p_bronze_table_name:
+            if p_bronze_table_name:
                 v_dict_join = {INVERTED_SOURCE_PROPERTIES_SYNONYMS.get('bronze_table_name'):p_bronze_table_name}
             
             v_join= "AND ".join([f"{column} =:{i+v_offset} " for i, column in enumerate(v_dict_join.keys())])
-            v_bindvars = tuple(p_dict_column_name_value.valuess()+v_dict_join.values())
+            v_bindvars = tuple(list(p_dict_column_name_value.values())+list(v_dict_join.values()))
             v_request = v_request + v_set + " WHERE "+ v_join
             
             # update last date or creation date (depends on table)
-            message = "Updating request : {} Bind Values :  {}".format(self.exploit_loading_table,v_request,v_bindvars)
+            message = "Updating request : {} Bind Values :  {}".format(v_request,v_bindvars)
             if self.verbose:
                 self.verbose.log(datetime.now(tz=timezone.utc), "SET_LASTUPDATE", "START", log_message=message,
                             log_request=v_request)
@@ -511,7 +511,7 @@ class BronzeDbManager:
                 v_zombies_data['OWNER'] = ''
                 v_zombies_data['TABLE_NAME'] = ZOMBIES_TABLE_NAME
                 v_zombies_data['PARTITIONED'] = 'NO'
-                v_zombies_data['TABLE_TYPE'] = ''
+                v_zombies_data['TABLE_TYPE'] = None
                 v_zombies_data['NUM_ROWS'] = 0
                 v_zombies_data['SIZE_MB'] = v_zombies_files_size
                 v_zombies_data['BUCKET'] = v_bucket
@@ -562,7 +562,7 @@ class BronzeDbManager:
                     for v_index, v_row in v_df_lh2_tables.iterrows():
                         v_table_data = v_row.to_dict()
                         v_table_name = v_table_data['TABLE_NAME']
-                        #v_num_rows = self.get_db().get_num_rows(v_table_name)
+                        v_num_rows = self.get_db().get_num_rows(v_table_name)
                         v_num_rows = 0
                         v_df_lh2_tables.at[v_index,'NUM_ROWS'] = v_num_rows
                 
@@ -630,22 +630,26 @@ class BronzeDbManager:
         # update databse LH2_tables with updated stats
         
         if not self.get_gather_lh2_tables_stats_status():
+            v_message = "Need to refresh stats before update LH2 Bronze table stats "
+            if p_verbose:
+                p_verbose.log(datetime.now(tz=timezone.utc), "UPDATE_BRONZE_STATS","START",log_message=v_message)
             return False
         try:
             v_message = "Updating external tables stats of bronze layer {} into table {}:".format(self.bronzeDbManager_env,self.lh2_tables_tablename)
             if p_verbose:
                 p_verbose.log(datetime.now(tz=timezone.utc),"UPDATE_BRONZE_STATS","START",log_message=v_message)
             v_cursor = self.get_db_connection().cursor()
-            for v_index, v_row in self.df_bronze_tables_stats.iterrows():
+            v_filtered_df_lh2_bronze_tables = create_filter_mask(self.get_lh2_bronze_tables_stats(),f'TABLE_NAME != \'{ZOMBIES_TABLE_NAME}\'')
+            for v_index, v_row in v_filtered_df_lh2_bronze_tables.iterrows():
                 v_rown_list_parquets = list_to_string(v_row['LIST_PARQUETS'])
                 v_sql = "UPDATE " + self.lh2_tables_tablename + " SET NUM_ROWS = :1, SIZE_MB = :2, NUM_PARQUETS = :3, LIST_PARQUETS = :4 WHERE OWNER = :5 AND TABLE_NAME = :6"
                 v_bindvars = (int(v_row['NUM_ROWS'] or 0), int(v_row['SIZE_MB'] or 0), int(v_row['NUM_PARQUETS'] or 0),v_rown_list_parquets, v_row['OWNER'], v_row['TABLE_NAME'])
                 
-                v_message = "Updating {0}.{1}, num_rows {2}, size_mb {3}, num_parquets {4}".format(v_row['OWNER'], v_row['TABLE_NAME'],int(v_row['NUM_ROWS'] or 0), int(v_row['SIZE_MB'] or 0), int(v_row['NUM_PARQUETS'] or 0))
-                '''
+                v_message = "Updating {0}.{1}, num_rows {2}, size_mb {3}, num_parquets {4}\n Request : {5}".format(v_row['OWNER'], v_row['TABLE_NAME'],int(v_row['NUM_ROWS'] or 0), int(v_row['SIZE_MB'] or 0), int(v_row['NUM_PARQUETS'] or 0),v_sql)
+                
                 if p_verbose:
                     p_verbose.log(datetime.now(tz=timezone.utc),"UPDATE_BRONZE_STATS","RUNNING",log_message=v_message)
-                '''
+                
                 v_cursor.execute(v_sql,v_bindvars )
 
             self.get_db_connection().commit()
@@ -670,7 +674,10 @@ class BronzeDbManager:
     def to_excel_lh2_bronze_tables_stats(self,p_excel_filename="lh2_bronze_tables_stats.xlsx",p_verbose=None):
         #Export LH2 bronze tables stats to Excel file
         
-        if self.get_lh2_bronze_tables_stats() is None:
+        if not self.get_gather_lh2_tables_stats_status():
+            v_message = "Need to refresh stats before laucnh garbage collector "
+            if p_verbose:
+                p_verbose.log(datetime.now(tz=timezone.utc), "EXPORT_BRONZE_STATS","START",log_message=v_message)
             return None
         try:
             # Create access to filestorage where to export excel file
@@ -733,6 +740,9 @@ class BronzeDbManager:
         #Garbage collector to delete parquet files not associated to any external tables (zombies parquet files)
         
         if not self.get_gather_lh2_tables_stats_status():
+            v_message = "Need to refresh stats before laucnh garbage collector "
+            if p_verbose:
+                p_verbose.log(datetime.now(tz=timezone.utc), "GARBAGE_COLLECTOR","START",log_message=v_message)
                 return False
         try:
             v_message = "Start garbage collector for {} ".format(self.bronzeDbManager_env)
@@ -762,6 +772,9 @@ class BronzeDbManager:
         # drop bronze table : drop external table into database and delete associated parquet files
         
         if not self.get_gather_lh2_tables_stats_status():
+            v_message = "Need to refresh stats before dropping table {}.{} ".format(self.get_db_username(),p_table_name)
+            if p_verbose:
+                p_verbose.log(datetime.now(tz=timezone.utc), "DROP_TABLE","START",log_message=v_message)
             return False
         try:
             v_message = "Starting Drop table {}.{} ".format(self.get_db_username(),p_table_name)
@@ -1333,7 +1346,7 @@ class BronzeGenerator:
                 v_last_bucket_parquet_file_sent = v_list[-1]
             else:
                 v_last_bucket_parquet_file_sent = None
-            v_dict_update_exploit['bronze_lastuploaded_parquet'] = v_last_bucket_parquet_file_sent
+            v_dict_update_exploit['lastuploaded_parquet'] = v_last_bucket_parquet_file_sent
              # if incremental integration, get lastupdate date to update Exploit loading table
             if vSourceProperties.incremental:
                 v_lastupdate_date = self.v_bronzesourcebuilder.get_bronze_lastupdated_row()
