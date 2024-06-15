@@ -171,7 +171,7 @@ class BronzeLogger():
             v_source_rows_stats = self.logger_linked_bronze_source.get_rows_stats()
             v_source_parquets_stats = self.logger_linked_bronze_source.get_parquets_stats()
             v_source_properties = self.logger_linked_bronze_source.get_source_properties()
-            v_source_lastupdated_row = self.logger_linked_bronze_source.get_bronze_lastupdated_row().strftime("%Y-%m-%d %H:%M:%S")
+            v_source_lastupdated_row = self.logger_linked_bronze_source.get_bronze_row_lastupdate_date()
             v_source_bucket_parquet_files_sent = list_to_string(self.logger_linked_bronze_source.get_bucket_parquet_files_sent())
             
             self.instance_bronzeloggerproperties = self.instance_bronzeloggerproperties._replace(
@@ -264,9 +264,11 @@ class BronzeExploit:
 
     def __del__(self):
         if not self.not_drop_running_loading_table:
-            self.get_db().execute_proc('LH2_ADMIN_EXPLOIT_PKG.DROP_TABLE_PROC', *[self.exploit_running_loading_table])
             message = "Deleting temporary Exploit table  {}".format(self.exploit_running_loading_table)
-            message += "\n{}".format(self.get_db().last_execute_proc_output())
+            if self.verbose:
+                self.verbose.log(datetime.now(tz=timezone.utc), "EXPLOIT", "END", log_message=message)
+            self.get_db().execute_proc('LH2_ADMIN_EXPLOIT_PKG.DROP_TABLE_PROC', *[self.exploit_running_loading_table])
+            message += "{}".format(self.get_db().last_execute_proc_output())
             if self.verbose:
                 self.verbose.log(datetime.now(tz=timezone.utc), "EXPLOIT", "END", log_message=message)
    
@@ -919,7 +921,7 @@ class BronzeSourceBuilder:
         self.bronze_schema = "BRONZE_" + self.env
 
         # Date of last update row
-        self.bronze_lastupdated_row = None
+        self.bronze_date_lastupdated_row = None
         
         self.total_sent_parquets = 0 # Total number of parquet files sent to bucket
         self.total_sent_parquets_size = 0 # total size of parquet files
@@ -1208,10 +1210,9 @@ class BronzeSourceBuilder:
     def get_logger(self):
         return self.logger
 
-    def get_bronze_lastupdated_row(self):
-        if not self.bronze_lastupdated_row:
-            self.bronze_lastupdated_row = self.get_bronzedb_manager().get_bronze_lastupdated_row(self.bronze_table, self.bronze_source_properties.date_criteria)
-        return self.bronze_lastupdated_row
+    def get_bronze_row_lastupdate_date(self):
+        self.bronze_date_lastupdated_row = self.get_bronzedb_manager().get_bronze_lastupdated_row(self.bronze_table, self.bronze_source_properties.date_criteria) if not self.bronze_date_lastupdated_row else None
+        return self.bronze_date_lastupdated_row
     
     def get_bronze_bucket_settings(self):
         return self.bronze_bucket_settings
@@ -1337,21 +1338,18 @@ class BronzeGenerator:
             if not self.v_bronzesourcebuilder.update_bronze_schema(verbose):
                 break
 
-            # 4 Update "Last_update" for incremental table integration
+            # 4 Update "last parquet file uploaded", "Last_update" for incremental table integration
             vSourceProperties = self.v_bronzesourcebuilder.get_source_properties()
             v_dict_update_exploit = dict()
             # Get bronze table name to update Exploit loading table
             v_dict_update_exploit['bronze_table_name'] = self.v_bronzesourcebuilder.get_bronze_properties().table
              # Get last uploaded parquet file to update Exploit loading table
             v_list = self.v_bronzesourcebuilder.get_bucket_parquet_files_sent()
-            if v_list:
-                v_last_bucket_parquet_file_sent = v_list[-1]
-            else:
-                v_last_bucket_parquet_file_sent = None
+            v_last_bucket_parquet_file_sent = v_list[-1] if v_list else None
             v_dict_update_exploit['lastuploaded_parquet'] = v_last_bucket_parquet_file_sent
              # if incremental integration, get lastupdate date to update Exploit loading table
             if vSourceProperties.incremental:
-                v_lastupdate_date = self.v_bronzesourcebuilder.get_bronze_lastupdated_row()
+                v_lastupdate_date = self.v_bronzesourcebuilder.get_bronze_row_lastupdate_date()
                 #print(last_date, type(last_date))
                 v_dict_update_exploit['last_update'] = v_lastupdate_date
             if not self.v_bronzeexploit.update_exploit(v_dict_update_exploit,p_source=vSourceProperties):
