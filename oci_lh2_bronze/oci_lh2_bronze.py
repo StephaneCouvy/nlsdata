@@ -701,7 +701,8 @@ class BronzeDbManager:
                 p_verbose.log(datetime.now(tz=timezone.utc), "EXPORT_BRONZE_STATS","START",log_message=v_log_message)
             return None
         v_start = datetime.now()
-        v_return = True
+        v_return = None
+        v_excel_file_tmp = p_excel_filename
         v_request = "Exporting to temporay Excel file {} :".format(v_excel_file_tmp)
         try:
             # Create access to filestorage where to export excel file
@@ -713,7 +714,7 @@ class BronzeDbManager:
             v_log_message = v_request
             if p_verbose:
                 p_verbose.log(datetime.now(tz=timezone.utc), "EXPORT_BRONZE_STATS","START",log_message=v_log_message)
-            v_df_converted_lists_to_strings = df_convert_lists_to_strings(self.df_bronze_tables_stats)
+            v_df_converted_lists_to_strings = df_convert_lists_to_strings(self.get_lh2_bronze_tables_stats())
             v_df_converted_lists_to_strings.to_excel(v_excel_file_tmp,index=False)
             
             # copy generated Excel to filestorage
@@ -723,6 +724,7 @@ class BronzeDbManager:
             v_destination_excel_file = v_filestorage.put_file(p_excel_filename,v_excel_file_tmp)
             os.remove(v_excel_file_tmp)
             
+            v_request = "Export Excel file {} :".format(v_destination_excel_file)
             v_log_message = "COMPLETED - "+v_request
             v_action = "COMPLETED"
             v_err = None
@@ -730,7 +732,7 @@ class BronzeDbManager:
             
         except Exception as err:
             v_err = err
-            v_action = "ERROR  - Export to Excel file {} :".format(v_destination_excel_file)
+            v_action = "ERROR  - " + v_request
             v_log_message = str(v_err)
             v_return = None
 
