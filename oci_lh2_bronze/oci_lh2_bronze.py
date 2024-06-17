@@ -542,7 +542,7 @@ class BronzeDbManager:
             v_log_message = "Gather Bronze tables stats with PL SQL Proc {0}({1})".format(self.gather_lh2_tables_stats_proc,self.gather_lh2_tables_stats_proc_args)
             if p_verbose:
                     p_verbose.log(datetime.now(tz=timezone.utc),"GATHER_BRONZE_STATS","START",log_message=v_log_message)
-            v_result_run_proc = self.run_proc(self.gather_lh2_tables_stats_proc,*self.gather_lh2_tables_stats_proc_args,p_verbose=p_verbose,p_proc_exe_context='GLOBAL')
+            v_result_run_proc = self.run_proc(self.gather_lh2_tables_stats_proc,*self.gather_lh2_tables_stats_proc_args,p_verbose=p_verbose,p_proc_exe_context='ALL')
             if not v_result_run_proc:
                 raise Exception("ERROR, Executing Procedure {0}({1})".format(self.gather_lh2_tables_stats_proc,self.gather_lh2_tables_stats_proc_args))
             
@@ -747,12 +747,12 @@ class BronzeDbManager:
             return v_return
         
 
-    def __delete_parquet_files__(self,p_bucket_name,p_parquet_list,p_verbose=None):
+    def __delete_parquet_files__(self,p_bucket_name,p_parquet_list,p_simulate=False,p_verbose=None):
         # Into bucket, Drop list of parquets files
         v_start = datetime.now()
         v_return = False
         v_file = ''
-        v_request = "Into bucket {}, deleting {} parquet files : {}".format(p_bucket_name,len(p_parquet_list),p_parquet_list)
+        v_request = "Into bucket {}, Simulate {} \n Deleting {} parquet files : {}".format(p_bucket_name,str(p_simulate),len(p_parquet_list),p_parquet_list)
         try:
             v_log_message = v_request
             if p_verbose:
@@ -763,10 +763,11 @@ class BronzeDbManager:
             # Iterate parquet list and delete object into bucket
             for v_object in p_parquet_list:
                 v_file = v_object
-                v_bucket.delete_object(v_object)
+                if not p_simulate:
+                    v_bucket.delete_object(v_object)
             
             v_log_message = "COMLPLETED - "+ v_request
-            v_action = "COMPLETED"
+            v_action = "COMPLETED" if not p_simulate else "COMPLETED - SIMULATE"
             v_err = None
             v_return = True
         except Exception as err:
@@ -777,7 +778,7 @@ class BronzeDbManager:
 
         finally:
             v_duration = datetime.now() - v_start
-            self.bronzeDb_Manager_logger.set_logger_properties(p_src_name=self.get_bronze_database_name(),p_src_origin_name=self.get_db_username(),p_src_object_name="ALL",p_request=v_request,p_duration=v_duration)
+            self.bronzeDb_Manager_logger.set_logger_properties(p_src_name=self.get_bronze_database_name(),p_src_origin_name=self.get_db_username(),p_src_object_name=p_bucket_name,p_request=v_request,p_duration=v_duration)
             
             if self.get_db():
                 if p_verbose:
@@ -786,11 +787,11 @@ class BronzeDbManager:
             return v_return
 
     
-    def bronze_garbage_collector(self,p_verbose=None):
+    def bronze_garbage_collector(self,p_simulate=False,p_verbose=None):
         #Garbage collector to delete parquet files not associated to any external tables (zombies parquet files)
         v_start = datetime.now()
         v_return = False
-        v_request = "Garbage collector for {} ".format(self.bronzeDbManager_env)
+        v_request = "Garbage collector for {} - Simulate {}".format(self.bronzeDbManager_env,str(p_simulate))
         if not self.get_gather_lh2_tables_stats_status():
             v_log_message = "Need to refresh stats before laucnh garbage collector "
             if p_verbose:
@@ -805,12 +806,12 @@ class BronzeDbManager:
             for v_index,v_row in self.df_bronze_tables_stats[v_mask].iterrows():
                 v_bucket_name = v_row['BUCKET']
                 v_parquet_list = v_row['LIST_PARQUETS']
-                v_result = self.__delete_parquet_files__(p_bucket_name=v_bucket_name,p_parquet_list=v_parquet_list,p_verbose=p_verbose)
+                v_result = self.__delete_parquet_files__(p_bucket_name=v_bucket_name,p_parquet_list=v_parquet_list,p_simulate=p_simulate,p_verbose=p_verbose)
                 if not v_result:
                     raise Exception("ERROR  Deleting parquet files into bucket {}".format(v_bucket_name))
                 
             v_log_message = "COMPLETED - " + v_request
-            v_action = "COMPLETED"
+            v_action = "COMPLETED" if not p_simulate else "COMPLETED - SIMULATE"
             v_err = None
             v_return = True
             
@@ -831,18 +832,18 @@ class BronzeDbManager:
             return v_return
               
     
-    def bronze_drop_table(self,p_table_name,p_verbose=None):
+    def bronze_drop_table(self,p_table_name,p_simulate=False,p_verbose=None):
         # drop bronze table : drop external table into database and delete associated parquet files
         v_start = datetime.now()
         v_return = False
-        v_request = "Drop table {}.{} and associated parquet files".format(self.get_db_username(),p_table_name)
+        v_request = "Drop table {}.{} and associated parquet files - Simulate {}".format(self.get_db_username(),p_table_name,str(p_simulate))
         if not self.get_gather_lh2_tables_stats_status():
             v_log_message = "Need to refresh stats before dropping table {}.{} ".format(self.get_db_username(),p_table_name)
             if p_verbose:
                 p_verbose.log(datetime.now(tz=timezone.utc), "DROP_TABLE","START",log_message=v_log_message)
             return False
         try:
-            v_log_message = "Starting " + v_request
+            v_log_message = "Starting {} - Simulate : {}".format(v_request,str(p_simulate))
             if p_verbose:
                 p_verbose.log(datetime.now(tz=timezone.utc), "DROP_TABLE","START",log_message=v_log_message)
             # Test if table exists
@@ -855,20 +856,22 @@ class BronzeDbManager:
             v_mask = (self.df_bronze_tables_stats['OWNER'] == self.get_db_username()) & (self.df_bronze_tables_stats['TABLE_NAME'] == p_table_name)
             for v_index,v_row in self.df_bronze_tables_stats[v_mask].iterrows():
                 # Drop table into database
-                
-                v_result_run_proc = self.run_proc('LH2_ADMIN_BRONZE_PKG.DROP_TABLE_PROC',*[p_table_name],p_verbose=p_verbose,p_proc_exe_context=p_table_name)
+                if not p_simulate:
+                    v_result_run_proc = self.run_proc('LH2_ADMIN_BRONZE_PKG.DROP_TABLE_PROC',*[p_table_name],p_verbose=p_verbose,p_proc_exe_context=p_table_name)
+                else:
+                    v_result_run_proc = True
                 if not v_result_run_proc:
                     raise Exception("ERROR dropping table {}.{}".format(self.get_db_username(),p_table_name))
                 
                 # delete associated parquets files
                 v_bucket_name = v_row['BUCKET']
                 v_parquet_list = v_row['LIST_PARQUETS']
-                v_result = self.__delete_parquet_files__(p_bucket_name=v_bucket_name,p_parquet_list=v_parquet_list,p_verbose=p_verbose)
+                v_result = self.__delete_parquet_files__(p_bucket_name=v_bucket_name,p_parquet_list=v_parquet_list,p_simulate=p_simulate,p_verbose=p_verbose)
                 if not v_result:
                     raise Exception("ERROR  Deleting parquet files into bucket {}".format(v_bucket_name))
                 
             v_log_message = "COMPLETED - "+ v_request
-            v_action = "COMPLETED"
+            v_action = "COMPLETED" if not p_simulate else "COMPLETED - SIMULATE" 
             v_err = None
             v_return = True
             
@@ -880,7 +883,7 @@ class BronzeDbManager:
 
         finally:
             v_duration = datetime.now() - v_start
-            self.bronzeDb_Manager_logger.set_logger_properties(p_src_name=self.get_bronze_database_name(),p_src_origin_name=self.get_db_username(),p_src_object_name="ALL",p_request=v_request,p_duration=v_duration)
+            self.bronzeDb_Manager_logger.set_logger_properties(p_src_name=self.get_bronze_database_name(),p_src_origin_name=self.get_db_username(),p_src_object_name=p_table_name,p_request=v_request,p_duration=v_duration)
             
             if self.get_db():
                 if p_verbose:
@@ -888,12 +891,12 @@ class BronzeDbManager:
                 self.bronzeDb_Manager_logger.log(pError=v_err, pAction=v_action)
             return v_return
        
-    def bronze_drop_tables_by_query(self,p_query:str,p_bronze_exploit:BronzeExploit,p_verbose=None):
+    def bronze_drop_tables_by_query(self,p_query:str,p_bronze_exploit:BronzeExploit,p_simulate=False,p_verbose=None):
         # drop bronze tables 
         # list of tables return by query on dataframe df_lh2_tables_stats
         v_start = datetime.now()
         v_return = False
-        v_request = "Drop tables on query {}".format(p_query)
+        v_request = "Drop tables on query {} - Simulate {}".format(p_query,str(p_simulate))
         v_table_list_to_drop = None
         if not self.get_gather_lh2_tables_stats_status():
             v_log_message = "Need to refresh stats before dropping tables with query {} ".format(p_query)
@@ -909,7 +912,7 @@ class BronzeDbManager:
             print(v_filtered_df_lh2_bronze_tables)
             if v_filtered_df_lh2_bronze_tables is None:
                 raise Exception("ERROR, Filtering bronze tables list, review your drop query")
-            v_table_list_to_drop = v_filtered_df_lh2_bronze_tables['TABLE_NAME']
+            v_table_list_to_drop = v_filtered_df_lh2_bronze_tables['TABLE_NAME'].tolist()
             if p_verbose:
                 v_log_message = "{} tables to be dropped : {}".format(len(v_table_list_to_drop),v_table_list_to_drop)
                 p_verbose.log(datetime.now(tz=timezone.utc), "DROP_TABLES_QUERY", "RUNNING", log_message=v_log_message)
@@ -918,7 +921,7 @@ class BronzeDbManager:
                 v_table_data = v_row.to_dict()
                 v_table_name = v_table_data['TABLE_NAME']
                 v_table_partitioned = v_table_data['PARTITIONED']
-                v_drop_result = self.bronze_drop_table(p_table_name=v_table_name,p_verbose=p_verbose)
+                v_drop_result = self.bronze_drop_table(p_table_name=v_table_name,p_simulate=p_simulate,p_verbose=p_verbose)
                 if v_drop_result:
                     # if drop table successfull, reset BRONZE_LASTUPLOADED_PARQUET , and SRC_DATE_LASTUPDATE to RESET_DATE_LASTUPDATE for Incremental table (Partitioned table)
                     v_dict_update_exploit = dict()
@@ -927,14 +930,15 @@ class BronzeDbManager:
                         v_dict_update_exploit['last_update']=RESET_DATE_LASTUPDATE
                         
                     if p_verbose:
-                        v_log_message = "Update Exploit loading table {} , reset {}".format(v_table_name,v_dict_update_exploit)
+                        v_log_message = "Update Exploit loading table {} , reset {} - Simulate = {}".format(v_table_name,v_dict_update_exploit,str(p_simulate))
                         p_verbose.log(datetime.now(tz=timezone.utc), "DROP_TABLES_QUERY", "RUNNING", log_message=v_log_message)
-                    if not p_bronze_exploit.update_exploit(v_dict_update_exploit,p_bronze_table_name=v_table_name):
-                            raise Exception("ERROR - Update Exploit table {} : {}".format(v_table_name,v_dict_update_exploit)) 
+                    if not p_simulate:
+                        if not p_bronze_exploit.update_exploit(v_dict_update_exploit,p_bronze_table_name=v_table_name):
+                                raise Exception("ERROR - Update Exploit table {} : {}".format(v_table_name,v_dict_update_exploit)) 
                 
             v_request = "Drop tables on query {} : \n{}".format(p_query,v_table_list_to_drop)
             v_log_message = "COMPLETED - " + v_request
-            v_action = "COMPLETED"
+            v_action = "COMPLETED" if not p_simulate else "COMPLETED - SIMULATE"
             v_err = None
             v_return = True
             
