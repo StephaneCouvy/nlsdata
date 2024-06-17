@@ -625,7 +625,7 @@ class BronzeDbManager:
 
         except Exception as err:
             v_err = err
-            v_action = "ERROR - Gather Bronze tables stats for environment {}".format(self.bronzeDbManager_env)
+            v_action = "ERROR - " + v_request
             v_log_message = str(v_err)
             v_return = False
 
@@ -816,7 +816,7 @@ class BronzeDbManager:
             
         except Exception as err:
             v_err = err
-            v_action = "ERROR - Garbage collector for {} ".format(self.bronzeDbManager_env)
+            v_action = "ERROR - " + v_request
             v_log_message = str(v_err)
             v_return = False
 
@@ -894,6 +894,7 @@ class BronzeDbManager:
         v_start = datetime.now()
         v_return = False
         v_request = "Drop tables on query ".format(p_query)
+        v_table_list_to_drop = None
         if not self.get_gather_lh2_tables_stats_status():
             v_log_message = "Need to refresh stats before dropping tables with query {} ".format(p_query)
             if p_verbose:
