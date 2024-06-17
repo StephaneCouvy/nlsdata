@@ -893,7 +893,7 @@ class BronzeDbManager:
         # list of tables return by query on dataframe df_lh2_tables_stats
         v_start = datetime.now()
         v_return = False
-        v_request = "Drop tables on query ".format(p_query)
+        v_request = "Drop tables on query {}".format(p_query)
         v_table_list_to_drop = None
         if not self.get_gather_lh2_tables_stats_status():
             v_log_message = "Need to refresh stats before dropping tables with query {} ".format(p_query)
@@ -909,8 +909,11 @@ class BronzeDbManager:
             print(v_filtered_df_lh2_bronze_tables)
             if v_filtered_df_lh2_bronze_tables is None:
                 raise Exception("ERROR, Filtering bronze tables list, review your drop query")
-            #pause()
             v_table_list_to_drop = v_filtered_df_lh2_bronze_tables['TABLE_NAME']
+            if p_verbose:
+                v_log_message = "{} tables to be dropped : {}".format(len(v_table_list_to_drop),v_table_list_to_drop)
+                p_verbose.log(datetime.now(tz=timezone.utc), "DROP_TABLES_QUERY", "RUNNING", log_message=v_log_message)
+            #pause()
             for _,v_row in v_filtered_df_lh2_bronze_tables.iterrows():
                 v_table_data = v_row.to_dict()
                 v_table_name = v_table_data['TABLE_NAME']
@@ -925,7 +928,7 @@ class BronzeDbManager:
                         
                     if p_verbose:
                         v_log_message = "Update Exploit loading table {} , reset {}".format(v_table_name,v_dict_update_exploit)
-                        p_verbose.log(datetime.now(tz=timezone.utc), "GLOBAL", "RUNNING", log_message=v_log_message)
+                        p_verbose.log(datetime.now(tz=timezone.utc), "DROP_TABLES_QUERY", "RUNNING", log_message=v_log_message)
                     if not p_bronze_exploit.update_exploit(v_dict_update_exploit,p_bronze_table_name=v_table_name):
                             raise Exception("ERROR - Update Exploit table {} : {}".format(v_table_name,v_dict_update_exploit)) 
                 
