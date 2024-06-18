@@ -6,6 +6,7 @@ import glob
 # Define a class BronzeSourceBuilderFile inheriting from BronzeSourceBuilder
 class BronzeSourceBuilderFile(BronzeSourceBuilder):
     def __init__(self, pSourceProperties:SourceProperties, pBronze_config:BronzeConfig, pBronzeDb_Manager:BronzeDbManager,pLogger:BronzeLogger):
+        # Set generic type 'FILE' for all imported file : Excel, CSV..... 
         vSourceProperties = pSourceProperties._replace(type="FILE")
         super().__init__(vSourceProperties,pBronze_config, pBronzeDb_Manager,pLogger)
         
