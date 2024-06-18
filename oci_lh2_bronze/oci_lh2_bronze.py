@@ -413,7 +413,7 @@ class BronzeDbManager:
     def is_table_exists(self,p_table_name):
         res = False
         if self.get_db_connection():
-            res = self.get_db().is_table_exists(p_table_name)
+            res = self.get_db().is_table_exists(p_table_name,self.get_db_username())
         return res
     
     def get_bronze_lastupdated_row(self,p_table_name,p_src_date_criteria):
