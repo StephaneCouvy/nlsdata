@@ -7,28 +7,30 @@ class BronzeSourceBuilderDb(BronzeSourceBuilder):
         super().__init__(vSourceProperties, pBronze_config, pBronzeDb_Manager,pLogger)
 
         # Create connexion to source database
-        self.source_database_param = get_parser_config_settings("database")(self.bronze_config.get_configuration_file(),self.bronze_source_properties.name)
+        self.source_database_param = get_parser_config_settings("database")(self.bronze_config.get_configuration_file(),self.get_bronze_source_properties().name)
         self.source_db = DBFACTORY.create_instance(self.source_database_param.dbwrapper,self.bronze_config.get_configuration_file())
         self.source_db_connection = self.source_db.create_db_connection(self.source_database_param)
 
         if not self.source_db_connection:
-            vError = "ERROR connecting to : {}".format(self.bronze_source_properties.name)
+            vError = "ERROR connecting to : {}".format(self.get_bronze_source_properties().name)
             raise Exception(vError)
         # Customize select to force encode of columns
         self.__custom_select_from_source__()
+        # Get source table indexes
+        self.source_table_indexes = self.source_db.get_table_indexes(self.get_bronze_source_properties().table)
 
     def __set_bronze_bucket_proxy__(self):
         #define settings for bucket, especially storagename... could depends on subclass
-        self.bronze_bucket_proxy.set_bucket_by_extension(p_bucket_extension=self.bronze_source_properties.name)
+        self.bronze_bucket_proxy.set_bucket_by_extension(p_bucket_extension=self.get_bronze_source_properties().name)
     
     def __set_bronze_table_settings__(self):
         #define bronze table name, bucket path to add parquet files, get index to restart parquet files interation
-        self.bronze_table = self.bronze_source_properties.name + "_" + self.bronze_source_properties.schema + "_" + self.bronze_source_properties.table.replace(" ", "_")
+        self.bronze_table = self.get_bronze_source_properties().name + "_" + self.get_bronze_source_properties().schema + "_" + self.get_bronze_source_properties().table.replace(" ", "_")
         # define template name of parquet files
-        self.parquet_file_name_template = self.bronze_source_properties.name + "_" + self.bronze_source_properties.table.replace(" ", "_")
+        self.parquet_file_name_template = self.get_bronze_source_properties().name + "_" + self.get_bronze_source_properties().table.replace(" ", "_")
         self.parquet_file_id = 0
         # Define the path for storing parquets files in the bucket
-        self.bucket_file_path = self.bronze_source_properties.schema + "/" + self.year + "/" + self.month + "/" + self.day + "/"
+        self.bucket_file_path = self.get_bronze_source_properties().schema + "/" + self.year + "/" + self.month + "/" + self.day + "/"
         # Get the index of the last Parquet file in the bucket
         self.parquet_file_id = self.__get_last_parquet_idx_in_bucket__()
         
@@ -38,7 +40,7 @@ class BronzeSourceBuilderDb(BronzeSourceBuilder):
                 raise Exception("Error no DB connection")
             # Execute a SQL query to fetch all data from the current table
             if verbose:
-                message = "Mode {2} : Extracting data {0},{1}".format(self.bronze_source_properties.schema, self.bronze_source_properties.table,SQL_READMODE)
+                message = "Mode {2} : Extracting data {0},{1}".format(self.get_bronze_source_properties().schema, self.get_bronze_source_properties().table,SQL_READMODE)
                 verbose.log(datetime.now(tz=timezone.utc), "FETCH", "START", log_message=message,log_request = self.request+': '+str(self.db_execute_bind))
             self.df_table_content = pd.DataFrame()
             match SQL_READMODE:
@@ -85,21 +87,21 @@ class BronzeSourceBuilderDb(BronzeSourceBuilder):
                             verbose.log(datetime.now(tz=timezone.utc), "FETCH", "RUN", log_message=message)
             return True
         except UnicodeDecodeError as err:  # Catching Unicode Decode Error
-            vError = "ERROR Unicode Decode, table {}".format(self.bronze_source_properties.table)
+            vError = "ERROR Unicode Decode, table {}".format(self.get_bronze_source_properties().table)
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "FETCH", vError, log_message=str(err),log_request=self.request)
             self.logger.log(pError=err, pAction=vError)
             self.__update_fetch_row_stats__()
             return False
         except oracledb.Error as err:
-            vError = "ERROR Fetching table {}".format(self.bronze_source_properties.table)
+            vError = "ERROR Fetching table {}".format(self.get_bronze_source_properties().table)
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "FETCH", vError, log_message='Oracle DB error :{}'.format(str(err)),log_request=self.request)
             self.logger.log(pError=err, pAction=vError)
             self.__update_fetch_row_stats__()
             return False
         except Exception as err:
-            vError = "ERROR Fetching table {}".format(self.bronze_source_properties.table)
+            vError = "ERROR Fetching table {}".format(self.get_bronze_source_properties().table)
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "FETCH", vError, log_message=str(err),log_request=self.request)
             self.logger.log(pError=err, pAction=vError)

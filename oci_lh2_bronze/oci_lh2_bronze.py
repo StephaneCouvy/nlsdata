@@ -30,9 +30,9 @@ PARQUET_FILE_EXTENSION = ".parquet"
 DBFACTORY = NLSDbFactory()
 FILESTORAGEFACTORY = NLSFileStorageFactory()
 
-SOURCE_PPROPERTIES_SYNONYMS = {'SRC_TYPE': 'type', 'SRC_NAME': 'name', 'SRC_ORIGIN_NAME': 'schema', 'SRC_OBJECT_NAME': 'table', 'SRC_OBJECT_CONSTRAINT': 'table_constraint', 'SRC_FLAG_ACTIVE': 'active', 'SRC_FLAG_INCR': 'incremental', 'SRC_DATE_CONSTRAINT': 'date_criteria', 'SRC_DATE_LASTUPDATE': 'last_update', 'FORCE_ENCODE': 'force_encode', 'BRONZE_POST_PROCEDURE': 'bronze_post_proc', 'BRONZE_POST_PROCEDURE_ARGS': 'bronze_post_proc_args','BRONZE_TABLE_NAME':'bronze_table_name','BRONZE_LASTUPLOADED_PARQUET':'lastuploaded_parquet'}
-INVERTED_SOURCE_PROPERTIES_SYNONYMS = {value: key for key, value in SOURCE_PPROPERTIES_SYNONYMS.items()}
-SourceProperties = namedtuple('SourceProperties',list(SOURCE_PPROPERTIES_SYNONYMS.values()))
+SOURCE_PROPERTIES_SYNONYMS = {'SRC_TYPE': 'type', 'SRC_NAME': 'name', 'SRC_ORIGIN_NAME': 'schema', 'SRC_OBJECT_NAME': 'table', 'SRC_OBJECT_CONSTRAINT': 'table_constraint', 'SRC_FLAG_ACTIVE': 'active', 'SRC_FLAG_INCR': 'incremental', 'SRC_DATE_CONSTRAINT': 'date_criteria', 'SRC_DATE_LASTUPDATE': 'last_update', 'FORCE_ENCODE': 'force_encode', 'BRONZE_POST_PROCEDURE': 'bronze_post_proc', 'BRONZE_POST_PROCEDURE_ARGS': 'bronze_post_proc_args','BRONZE_TABLE_NAME':'bronze_table_name','BRONZE_LASTUPLOADED_PARQUET':'lastuploaded_parquet','SRC_TABLE_IDX':'source_table_indexes'}
+INVERTED_SOURCE_PROPERTIES_SYNONYMS = {value: key for key, value in SOURCE_PROPERTIES_SYNONYMS.items()}
+SourceProperties = namedtuple('SourceProperties',list(SOURCE_PROPERTIES_SYNONYMS.values()))
 # SourceProperties namedtuple is set into Exploit __init__, based on fields of table used to list sources
 
 BronzeProperties = namedtuple('BronzeProperties',['environment','schema','table','bucket','bucket_filepath','parquet_template'])
@@ -146,7 +146,7 @@ class BronzeLogger():
         self.logger_linked_bronze_source:BronzeSourceBuilder = pBronze_source
         self.logger_linked_bronze_config:BronzeConfig = pBronze_source.get_bronze_config()
         self.logger_env = self.logger_linked_bronze_source.get_bronze_properties().environment
-        vSourceProperties = self.logger_linked_bronze_source.get_source_properties()
+        vSourceProperties = self.logger_linked_bronze_source.get_bronze_source_properties()
         self._init_logger()
         self.instance_bronzeloggerproperties = self.instance_bronzeloggerproperties._replace(SRC_NAME=vSourceProperties.name,SRC_ORIGIN_NAME=vSourceProperties.schema,SRC_OBJECT_NAME=vSourceProperties.table)
 
@@ -171,7 +171,7 @@ class BronzeLogger():
             v_source_durations_stats = self.logger_linked_bronze_source.get_durations_stats()
             v_source_rows_stats = self.logger_linked_bronze_source.get_rows_stats()
             v_source_parquets_stats = self.logger_linked_bronze_source.get_parquets_stats()
-            v_source_properties = self.logger_linked_bronze_source.get_source_properties()
+            v_source_properties = self.logger_linked_bronze_source.get_bronze_source_properties()
             v_source_lastupdated_row = self.logger_linked_bronze_source.get_bronze_row_lastupdate_date()
             v_source_bucket_parquet_files_sent = list_to_string(self.logger_linked_bronze_source.get_bucket_parquet_files_sent())
             
@@ -250,7 +250,7 @@ class BronzeExploit:
         #define SourceProperties namedtuple as a global type
         global SourceProperties
         vLoadingTableProperties = self.get_db().create_namedtuple_from_table('SourceProperties',self.exploit_running_loading_table)
-        vNew_fields = [SOURCE_PPROPERTIES_SYNONYMS.get(old_name,old_name) for old_name in vLoadingTableProperties._fields]
+        vNew_fields = [SOURCE_PROPERTIES_SYNONYMS.get(old_name,old_name) for old_name in vLoadingTableProperties._fields]
         vNew_fields.append('request')
         vDefaults_values = [None] * len(vNew_fields)
         SourceProperties = namedtuple ('SourceProperties',vNew_fields,defaults=vDefaults_values)
@@ -1085,6 +1085,7 @@ class BronzeSourceBuilder:
         # To be set into subclass
         self.source_db = None
         self.source_db_connection = None
+        self.source_table_indexes = None
 
         # For DB source, build select request
         self.where = ''
@@ -1343,7 +1344,7 @@ class BronzeSourceBuilder:
     def get_parquets_stats(self):
         return (self.total_sent_parquets, self.total_sent_parquets_size,self.total_temp_parquets)
 
-    def get_source_properties(self):
+    def get_bronze_source_properties(self):
         return self.bronze_source_properties
 
     def get_bronze_properties(self):
@@ -1361,6 +1362,9 @@ class BronzeSourceBuilder:
     
     def get_bucket_parquet_files_sent(self):
         return self.bucket_list_parquet_files_sent
+    
+    def get_source_table_indexes(self):
+        return self.source_table_indexes
     
     def send_parquet_files_to_oci(self,verbose=None):
         self.upload_parquets_start = datetime.now()
@@ -1481,7 +1485,7 @@ class BronzeGenerator:
                 break
 
             # 4 Update "last parquet file uploaded", "Last_update" for incremental table integration
-            vSourceProperties = self.v_bronzesourcebuilder.get_source_properties()
+            vSourceProperties = self.v_bronzesourcebuilder.get_bronze_source_properties()
             v_dict_update_exploit = dict()
             # Get bronze table name to update Exploit loading table
             v_dict_update_exploit['bronze_table_name'] = self.v_bronzesourcebuilder.get_bronze_properties().table
@@ -1489,6 +1493,9 @@ class BronzeGenerator:
             v_list = self.v_bronzesourcebuilder.get_bucket_parquet_files_sent()
             v_last_bucket_parquet_file_sent = v_list[-1] if v_list else None
             v_dict_update_exploit['lastuploaded_parquet'] = v_last_bucket_parquet_file_sent
+            #Get indexes of source table
+            v_source_table_indexes = self.v_bronzesourcebuilder.get_source_table_indexes()
+            v_dict_update_exploit['source_table_indexes'] = dict_to_string(v_source_table_indexes).replace('\'','')
              # if incremental integration, get lastupdate date to update Exploit loading table
             if vSourceProperties.incremental:
                 v_lastupdate_date = self.v_bronzesourcebuilder.get_bronze_row_lastupdate_date()
