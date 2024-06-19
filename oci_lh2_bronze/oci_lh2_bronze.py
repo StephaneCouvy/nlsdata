@@ -1141,22 +1141,23 @@ class BronzeSourceBuilder:
         # check if other parquet files already exist into the same bucket folder
         # get the last id parquet number
         # to avoid remplace existing parquet files
-        idx = 0
+        v_idx = 0
         try:
             #bucket = FILESTORAGEFACTORY.create_instance(self.get_bronze_bucket_settings().filestorage_wrapper,**self.get_bronze_bucket_settings()._asdict())
-            bucket = self.bronze_bucket_proxy.get_bucket()
-            what_to_search = self.bucket_file_path+self.parquet_file_name_template
-            list_buckets_files = [obj.name for obj in bucket.list_objects(what_to_search)]
-            if list_buckets_files:
-                max_file = max(list_buckets_files)
+            v_bucket = self.bronze_bucket_proxy.get_bucket()
+            v_what_to_search = self.bucket_file_path+self.parquet_file_name_template
+            v_filter_bucket_func = build_fnmatch_filter('*{}*'.format(v_what_to_search))
+            v_list_buckets_files = [obj.name for obj in v_bucket.list_objects(v_filter_bucket_func)]
+            if v_list_buckets_files:
+                v_max_file = max(v_list_buckets_files)
                 # eliminate file extension
-                begin_file_name = max_file.split('.')[0]
+                v_begin_file_name = v_max_file.split('.')[0]
                 # span() returns a tuple containing the start-, and end positions of the match.
-                pos = re.search(what_to_search, begin_file_name).span()[1]
-                idx = int(begin_file_name[pos:])
+                v_pos = re.search(v_what_to_search, v_begin_file_name).span()[1]
+                v_idx = int(v_begin_file_name[v_pos:])
         except:
-            idx = 0
-        return idx
+            v_idx = 0
+        return v_idx
 
     def __set_bronze_bucket_proxy__(self):
         #define settings for bucket, especially storagename... could depends on subclass
