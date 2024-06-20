@@ -16,8 +16,11 @@ class BronzeSourceBuilderDb(BronzeSourceBuilder):
             raise Exception(vError)
         # Customize select to force encode of columns
         self.__custom_select_from_source__()
-        # Get source table indexes
-        self.source_table_indexes = self.source_db.get_table_indexes(self.get_bronze_source_properties().table)
+        # Get source table indexes if not already defined 
+        if not self.source_table_indexes:
+            v_source_table_indexes = self.source_db.get_table_indexes(self.get_bronze_source_properties().table)
+            v_dict_source_tables_indexes =  dict_to_string(v_source_table_indexes)
+            self.source_table_indexes = v_dict_source_tables_indexes.replace('\'','') if v_dict_source_tables_indexes else None
 
     def __set_bronze_bucket_proxy__(self):
         #define settings for bucket, especially storagename... could depends on subclass
@@ -30,7 +33,9 @@ class BronzeSourceBuilderDb(BronzeSourceBuilder):
         self.parquet_file_name_template = self.get_bronze_source_properties().name + "_" + self.get_bronze_source_properties().table.replace(" ", "_")
         self.parquet_file_id = 0
         # Define the path for storing parquets files in the bucket
-        self.bucket_file_path = self.get_bronze_source_properties().schema + "/" + self.year + "/" + self.month + "/" + self.day + "/"
+        #self.bucket_file_path = self.get_bronze_source_properties().schema + "/" + self.year + "/" + self.month + "/" + self.day + "/"
+        v_dict_externaltablepartition = self.get_externaltablepartition_properties()._asdict()
+        self.bucket_file_path = self.get_bronze_source_properties().schema + "/" + '/'.join([f"{key}" for key in v_dict_externaltablepartition.values()]) + "/"
         # Get the index of the last Parquet file in the bucket
         self.parquet_file_id = self.__get_last_parquet_idx_in_bucket__()
         
