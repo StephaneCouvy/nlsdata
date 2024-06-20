@@ -36,7 +36,9 @@ class BronzeSourceBuilderFile(BronzeSourceBuilder):
         self.parquet_file_name_template = self.bronze_source_properties.type + "_" + self.bronze_source_properties.table.replace(" ", "_")
         self.parquet_file_id = 0
         # Define the path for storing parquets files in the bucket
-        self.bucket_file_path = self.bronze_source_properties.table.replace(" ", "_") + "/" + self.year + "/" + self.month + "/" + self.day + "/"
+        #self.bucket_file_path = self.bronze_source_properties.table.replace(" ", "_") + "/" + self.year + "/" + self.month + "/" + self.day + "/"
+        v_dict_externaltablepartition = self.get_externaltablepartition_properties()._asdict()
+        self.bucket_file_path = self.bronze_source_properties.table.replace(" ", "_") + "/" + '/'.join([f"{key}" for key in v_dict_externaltablepartition.values()]) + "/"
         # Get the index of the last Parquet file in the bucket
         self.parquet_file_id = self.__get_last_parquet_idx_in_bucket__()
     

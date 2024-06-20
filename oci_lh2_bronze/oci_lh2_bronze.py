@@ -15,8 +15,10 @@ EXPLOIT_ARG_LOADING_TABLE = 'l'
 EXPLOIT_ARG_LOG_TABLE = 'o'
 EXPLOIT_ARG_RELOAD_ON_ERROR_INTERVAL = 'x'
 EXPLOIT_ARG_NOT_DROP_TEMP_RUNNING_LOADING_TABLE = 'k'
+
 ZOMBIES_TABLE_NAME = 'ZOMBIES'
 RESET_DATE_LASTUPDATE = datetime.strptime('2018-01-01 00:00:00', '%Y-%m-%d %H:%M:%S')
+
 FILESTORAGE_BRONZE_BUCKET_DEBUG = 'BRONZE_BUCKET_DEBUG'
 FILESTORAGE_BRONZE_BUCKET = 'BRONZE_BUCKET'
 
@@ -33,6 +35,11 @@ FILESTORAGEFACTORY = NLSFileStorageFactory()
 SOURCE_PROPERTIES_SYNONYMS = {'SRC_TYPE': 'type', 'SRC_NAME': 'name', 'SRC_ORIGIN_NAME': 'schema', 'SRC_OBJECT_NAME': 'table', 'SRC_OBJECT_CONSTRAINT': 'table_constraint', 'SRC_FLAG_ACTIVE': 'active', 'SRC_FLAG_INCR': 'incremental', 'SRC_DATE_CONSTRAINT': 'date_criteria', 'SRC_DATE_LASTUPDATE': 'last_update', 'FORCE_ENCODE': 'force_encode', 'BRONZE_POST_PROCEDURE': 'bronze_post_proc', 'BRONZE_POST_PROCEDURE_ARGS': 'bronze_post_proc_args','BRONZE_TABLE_NAME':'bronze_table_name','BRONZE_LASTUPLOADED_PARQUET':'lastuploaded_parquet','SRC_TABLE_IDX':'source_table_indexes'}
 INVERTED_SOURCE_PROPERTIES_SYNONYMS = {value: key for key, value in SOURCE_PROPERTIES_SYNONYMS.items()}
 SourceProperties = namedtuple('SourceProperties',list(SOURCE_PROPERTIES_SYNONYMS.values()))
+
+EXTERNAL_TABLE_PARTITION_SYNONYMS = {'FETCH_YEAR':'year','FETCH_MONTH':'month','FETCH_DAY':'day'}
+INVERTED_EXTERNAL_TABLE_PARTITION_SYNONYMS = {value: key for key, value in EXTERNAL_TABLE_PARTITION_SYNONYMS.items()}
+ExternalTablePartitionsProperties = namedtuple('ExternalTablePartitionsProperties',list(EXTERNAL_TABLE_PARTITION_SYNONYMS.values()))
+
 # SourceProperties namedtuple is set into Exploit __init__, based on fields of table used to list sources
 
 BronzeProperties = namedtuple('BronzeProperties',['environment','schema','table','bucket','bucket_filepath','parquet_template'])
@@ -215,9 +222,9 @@ class BronzeExploit:
 
         self.exploit_loading_table = self.exploit_config.get_options().datasource_load_tablename_prefix + self.exploit_config.get_options().environment
         self.exploit_running_loading_table = format_temporary_tablename(self.exploit_loading_table)
-        message = "Create running exploit loading table  {}".format(self.exploit_running_loading_table)
+        v_message = "Create running exploit loading table  {}".format(self.exploit_running_loading_table)
         if self.verbose:
-            self.verbose.log(datetime.now(tz=timezone.utc), "EXPLOIT", "START", log_message=message)
+            self.verbose.log(datetime.now(tz=timezone.utc), "EXPLOIT", "START", log_message=v_message)
             
         if optional_args.get(EXPLOIT_ARG_LOADING_TABLE,None):
             self.batch_loading_table = optional_args[EXPLOIT_ARG_LOADING_TABLE]
@@ -235,29 +242,29 @@ class BronzeExploit:
             except IndexError:
                 v_interval_end = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
-            message = "Populate exploit loading table {} with previous error tables from log table {} on interval {}->{}".format(self.exploit_running_loading_table,v_log_table,v_interval_start,v_interval_end)
+            v_message = "Populate exploit loading table {} with previous error tables from log table {} on interval {}->{}".format(self.exploit_running_loading_table,v_log_table,v_interval_start,v_interval_end)
             if self.verbose:
-                self.verbose.log(datetime.now(tz=timezone.utc), "EXPLOIT", "START", log_message=message)
-        vDmbs_output = self.get_db().execute_proc('LH2_ADMIN_EXPLOIT_PKG.CREATE_LH2_DATASOURCE_LOADING_PROC',*[self.exploit_loading_table,self.batch_loading_table,self.exploit_running_loading_table,v_log_table,v_interval_start,v_interval_end])
+                self.verbose.log(datetime.now(tz=timezone.utc), "EXPLOIT", "START", log_message=v_message)
+        v_dmbs_output = self.get_db().execute_proc('LH2_ADMIN_EXPLOIT_PKG.CREATE_LH2_DATASOURCE_LOADING_PROC',*[self.exploit_loading_table,self.batch_loading_table,self.exploit_running_loading_table,v_log_table,v_interval_start,v_interval_end])
         self.get_db_connection().commit()
         if not self.get_db().last_execute_proc_completion():
-            message = "ERROR, Create running exploit loading table  {}".format(self.exploit_running_loading_table)
-            message += "\n{}".format(self.get_db().last_execute_proc_output())
+            v_message = "ERROR, Create running exploit loading table  {}".format(self.exploit_running_loading_table)
+            v_message += "\n{}".format(self.get_db().last_execute_proc_output())
             if self.verbose:
-                self.verbose.log(datetime.now(tz=timezone.utc), "EXPLOIT", "ERROR", log_message=message)
-            raise Exception(message)
+                self.verbose.log(datetime.now(tz=timezone.utc), "EXPLOIT", "ERROR", log_message=v_message)
+            raise Exception(v_message)
         
         #define SourceProperties namedtuple as a global type
         global SourceProperties
-        vLoadingTableProperties = self.get_db().create_namedtuple_from_table('SourceProperties',self.exploit_running_loading_table)
-        vNew_fields = [SOURCE_PROPERTIES_SYNONYMS.get(old_name,old_name) for old_name in vLoadingTableProperties._fields]
-        vNew_fields.append('request')
-        vDefaults_values = [None] * len(vNew_fields)
-        SourceProperties = namedtuple ('SourceProperties',vNew_fields,defaults=vDefaults_values)
+        v_loadingTableProperties = self.get_db().create_namedtuple_from_table('SourceProperties',self.exploit_running_loading_table)
+        v_new_fields = [SOURCE_PROPERTIES_SYNONYMS.get(old_name,old_name) for old_name in v_loadingTableProperties._fields]
+        v_new_fields.append('request')
+        v_defaults_values = [None] * len(v_new_fields)
+        SourceProperties = namedtuple ('SourceProperties',v_new_fields,defaults=v_defaults_values)
         
         # Execute a SQL query to fetch activ data from the table "LIST_DATASOURCE_LOADING_..." into a dataframe
-        param_req = "select * from " + self.exploit_running_loading_table + " where SRC_FLAG_ACTIV = 1 ORDER BY SRC_TYPE,SRC_NAME,SRC_OBJECT_NAME"
-        v_cursor.execute(param_req)
+        v_sql = "select * from " + self.exploit_running_loading_table + " where SRC_FLAG_ACTIV = 1 ORDER BY SRC_TYPE,SRC_NAME,SRC_OBJECT_NAME"
+        v_cursor.execute(v_sql)
         self.df_param = pd.DataFrame(v_cursor.fetchall())
         self.df_param.columns = [x[0] for x in v_cursor.description]
         #self.iterator = iter(map(SourceProperties._make,vCursor.fetchall()))
@@ -279,12 +286,12 @@ class BronzeExploit:
     def __next__(self):
         try:
             #items = [self.df_param.iloc[self.idx,i] for i in range(len(self.df_param.columns))]
-            vLine = self.df_param.iloc[self.idx].tolist()
-            items = SourceProperties(*vLine)
+            v_line = self.df_param.iloc[self.idx].tolist()
+            v_items = SourceProperties(*v_line)
         except IndexError:
             raise StopIteration()
         self.idx += 1
-        return items
+        return v_items
         
         #return next(self.iterator)
 
@@ -416,11 +423,10 @@ class BronzeDbManager:
             res = self.get_db().is_table_exists(p_table_name,self.get_db_username())
         return res
     
-    def get_bronze_lastupdated_row(self,p_table_name,p_src_date_criteria):
+    def get_bronze_lastupdated_row(self,p_table_name,p_src_date_criteria,p_where=None):
         last_date = None
-        if not self.get_db_connection():
-            return last_date
-        last_date = self.get_db().get_table_max_column(p_table_name, p_src_date_criteria)
+        if self.get_db_connection():
+            last_date = self.get_db().get_table_max_column(p_table_name, p_src_date_criteria,p_where)
         return last_date
     
     def run_proc(self,p_proc_name='',/,*args,p_verbose=None,p_proc_exe_context='GLOBAL'):
@@ -1036,10 +1042,10 @@ class BronzeSourceBuilder:
     # SRC_date_where : clause where to filter on records date, might depend on table
     # SRC_date_lastupdate : update last timestamp for data integration
     # FORCE_ENCODE : if UnicodeError during fetch, custom select by converting column of type VARCHAR to a specific CHARSET
-    def __init__(self, pSource_properties:SourceProperties, pBronze_config:BronzeConfig, pBronzeDb_Manager:BronzeDbManager,pLogger:BronzeLogger):
-        self.bronze_source_properties = pSource_properties
-        self.bronze_config = pBronze_config
-        self.bronzedb_manager = pBronzeDb_Manager
+    def __init__(self, p_source_properties:SourceProperties, p_bronze_config:BronzeConfig, p_bronzeDb_Manager:BronzeDbManager,p_logger:BronzeLogger):
+        self.bronze_source_properties = p_source_properties
+        self.bronze_config = p_bronze_config
+        self.bronzedb_manager = p_bronzeDb_Manager
         self.env = self.bronze_config.get_options().environment
 
         # Create "tmp" folder to save parquet files
@@ -1054,9 +1060,12 @@ class BronzeSourceBuilder:
         self.bucket_list_parquet_files_sent = []
         # Format the timestamp as a string with a specific format (Year-Month-Day)
         self.today = datetime.now(tz=timezone.utc)
+        self.externaltablepartition = ExternalTablePartitionsProperties(self.today.strftime("%Y"),self.today.strftime("%Y%m"),self.today.strftime("%Y%m%d"))
+        '''
         self.year = self.today.strftime("%Y")
         self.month = self.today.strftime("%Y%m")
         self.day = self.today.strftime("%Y%m%d")
+        '''
         self.bucket_file_path = "" # defined into sub-class
         self.bronze_table = "" # defined into sub-class
         self.bronze_schema = "BRONZE_" + self.env
@@ -1085,7 +1094,7 @@ class BronzeSourceBuilder:
         # To be set into subclass
         self.source_db = None
         self.source_db_connection = None
-        self.source_table_indexes = None
+        self.source_table_indexes = self.bronze_source_properties.source_table_indexes
 
         # For DB source, build select request
         self.where = ''
@@ -1105,7 +1114,7 @@ class BronzeSourceBuilder:
         self.__set_bronze_table_settings__()
         
         # setup logger to log events errors and COMPLETED into LOG_ table
-        self.logger = pLogger
+        self.logger = p_logger
         self.logger.link_to_bronze_source(self)
         
     def __set_local_workgingdir__(self, path):
@@ -1135,8 +1144,8 @@ class BronzeSourceBuilder:
 
     def __add_integration_date_column__(self):
         # Adding column into every parquet file with System date to log integration datetime
-        integration_time = datetime.now(tz=timezone.utc)
-        self.df_table_content["fetch_date"] = integration_time
+        v_integration_time = datetime.now(tz=timezone.utc)
+        self.df_table_content["fetch_date"] = v_integration_time
 
     def __get_last_parquet_idx_in_bucket__(self):
         # check if other parquet files already exist into the same bucket folder
@@ -1350,11 +1359,17 @@ class BronzeSourceBuilder:
     def get_bronze_properties(self):
         return BronzeProperties(self.env,self.bronze_schema,self.bronze_table,self.bronze_bucket_proxy.get_bucket_name(),self.bucket_file_path,self.parquet_file_name_template)
 
+    def get_externaltablepartition_properties(self):
+        return self.externaltablepartition
+    
     def get_logger(self):
         return self.logger
 
     def get_bronze_row_lastupdate_date(self):
-        self.bronze_date_lastupdated_row = self.get_bronzedb_manager().get_bronze_lastupdated_row(self.bronze_table, self.bronze_source_properties.date_criteria) if not self.bronze_date_lastupdated_row else None
+        if not self.bronze_date_lastupdated_row:
+            v_dict_join = self.get_externaltablepartition_properties()._asdict()
+            v_join= " AND ".join([f"{INVERTED_EXTERNAL_TABLE_PARTITION_SYNONYMS.get(key,key)} = '{value}'" for key, value in v_dict_join.items()])
+            self.bronze_date_lastupdated_row = self.get_bronzedb_manager().get_bronze_lastupdated_row(self.bronze_table, self.bronze_source_properties.date_criteria,v_join)
         return self.bronze_date_lastupdated_row
     
     def get_bronze_bucket_settings(self):
@@ -1494,14 +1509,11 @@ class BronzeGenerator:
             v_last_bucket_parquet_file_sent = v_list[-1] if v_list else None
             v_dict_update_exploit['lastuploaded_parquet'] = v_last_bucket_parquet_file_sent
             #Get indexes of source table
-            v_source_table_indexes = self.v_bronzesourcebuilder.get_source_table_indexes()
-            v_dict_source_tables_indexes =  dict_to_string(v_source_table_indexes)
-            v_dict_update_exploit['source_table_indexes'] = v_dict_source_tables_indexes.replace('\'','') if v_dict_source_tables_indexes else None
+            v_dict_update_exploit['source_table_indexes'] = self.v_bronzesourcebuilder.get_source_table_indexes()
              # if incremental integration, get lastupdate date to update Exploit loading table
-            if vSourceProperties.incremental:
-                v_lastupdate_date = self.v_bronzesourcebuilder.get_bronze_row_lastupdate_date()
-                #print(last_date, type(last_date))
-                v_dict_update_exploit['last_update'] = v_lastupdate_date
+            v_lastupdate_date = self.v_bronzesourcebuilder.get_bronze_row_lastupdate_date() if vSourceProperties.incremental else None
+            #print(last_date, type(last_date))
+            v_dict_update_exploit['last_update'] = v_lastupdate_date
             if not self.v_bronzeexploit.update_exploit(v_dict_update_exploit,p_source=vSourceProperties):
                 break
             # Run Post integration PLSQL procedure for current source
