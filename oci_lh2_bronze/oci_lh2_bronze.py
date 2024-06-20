@@ -1495,8 +1495,9 @@ class BronzeGenerator:
             v_dict_update_exploit['lastuploaded_parquet'] = v_last_bucket_parquet_file_sent
             #Get indexes of source table
             v_source_table_indexes = self.v_bronzesourcebuilder.get_source_table_indexes()
-            v_dict_update_exploit['source_table_indexes'] = dict_to_string(v_source_table_indexes).replace('\'','')
-             # if incremental integration, get lastupdate date to update Exploit loading table
+            v_dict_source_tables_indexes =  dict_to_string(v_source_table_indexes)
+            v_dict_update_exploit['source_table_indexes'] = v_dict_source_tables_indexes.replace('\'','') if v_dict_source_tables_indexes else None
+            # if incremental integration, get lastupdate date to update Exploit loading table
             if vSourceProperties.incremental:
                 v_lastupdate_date = self.v_bronzesourcebuilder.get_bronze_row_lastupdate_date()
                 #print(last_date, type(last_date))
