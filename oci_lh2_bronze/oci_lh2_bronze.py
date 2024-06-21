@@ -32,7 +32,7 @@ PARQUET_FILE_EXTENSION = ".parquet"
 DBFACTORY = NLSDbFactory()
 FILESTORAGEFACTORY = NLSFileStorageFactory()
 
-SOURCE_PROPERTIES_SYNONYMS = {'SRC_TYPE': 'type', 'SRC_NAME': 'name', 'SRC_ORIGIN_NAME': 'schema', 'SRC_OBJECT_NAME': 'table', 'SRC_OBJECT_CONSTRAINT': 'table_constraint', 'SRC_FLAG_ACTIVE': 'active', 'SRC_FLAG_INCR': 'incremental', 'SRC_DATE_CONSTRAINT': 'date_criteria', 'SRC_DATE_LASTUPDATE': 'last_update', 'FORCE_ENCODE': 'force_encode', 'BRONZE_POST_PROCEDURE': 'bronze_post_proc', 'BRONZE_POST_PROCEDURE_ARGS': 'bronze_post_proc_args','BRONZE_TABLE_NAME':'bronze_table_name','BRONZE_LASTUPLOADED_PARQUET':'lastuploaded_parquet','SRC_TABLE_IDX':'source_table_indexes'}
+SOURCE_PROPERTIES_SYNONYMS = {'SRC_TYPE': 'type', 'SRC_NAME': 'name', 'SRC_ORIGIN_NAME': 'schema', 'SRC_OBJECT_NAME': 'table', 'SRC_OBJECT_CONSTRAINT': 'table_constraint', 'SRC_FLAG_ACTIVE': 'active', 'SRC_FLAG_INCR': 'incremental', 'SRC_DATE_CONSTRAINT': 'date_criteria', 'SRC_DATE_LASTUPDATE': 'last_update', 'FORCE_ENCODE': 'force_encode', 'BRONZE_BIS_JOIN':'bronze_bis_merge_join','BRONZE_POST_PROCEDURE': 'bronze_post_proc', 'BRONZE_POST_PROCEDURE_ARGS': 'bronze_post_proc_args','BRONZE_TABLE_NAME':'bronze_table_name','BRONZE_LASTUPLOADED_PARQUET':'lastuploaded_parquet','SRC_TABLE_IDX':'source_table_indexes'}
 INVERTED_SOURCE_PROPERTIES_SYNONYMS = {value: key for key, value in SOURCE_PROPERTIES_SYNONYMS.items()}
 SourceProperties = namedtuple('SourceProperties',list(SOURCE_PROPERTIES_SYNONYMS.values()))
 
@@ -1068,7 +1068,7 @@ class BronzeSourceBuilder:
         '''
         self.bucket_file_path = "" # defined into sub-class
         self.bronze_table = "" # defined into sub-class
-        self.bronze_schema = "BRONZE_" + self.env
+        self.bronze_schema = p_bronzeDb_Manager.get_db_username()
 
         # Date of last update row
         self.bronze_date_lastupdated_row = None
@@ -1095,6 +1095,7 @@ class BronzeSourceBuilder:
         self.source_db = None
         self.source_db_connection = None
         self.source_table_indexes = self.bronze_source_properties.source_table_indexes
+        self.bronze_bis_merge_join = self.bronze_source_properties.bronze_bis_merge_join
 
         # For DB source, build select request
         self.where = ''
@@ -1116,7 +1117,88 @@ class BronzeSourceBuilder:
         # setup logger to log events errors and COMPLETED into LOG_ table
         self.logger = p_logger
         self.logger.link_to_bronze_source(self)
+    
+    def set_bronzedb_connection(self,pBronzeDbManager:BronzeDbManager):
+        self.bronzedb_manager = pBronzeDbManager
         
+    def update_total_duration(self):
+        self.total_duration = datetime.now() - self.start 
+
+    def get_bronze_config(self):
+        return self.bronze_config
+
+    def get_bronzedb_manager(self):
+        return self.bronzedb_manager
+    
+    def get_post_procedure_parameters(self):
+        if self.bronze_source_properties.bronze_post_proc:
+            return (self.bronze_source_properties.bronze_post_proc,self.bronze_source_properties.bronze_post_proc_args)
+        else:
+            return None
+    
+    def get_rows_stats(self):
+        return (self.total_imported_rows, self.total_imported_rows_size)
+
+    def get_durations_stats(self):
+        return (self.total_duration,self.fetch_duration,self.upload_parquets_duration)
+
+    def get_parquets_stats(self):
+        return (self.total_sent_parquets, self.total_sent_parquets_size,self.total_temp_parquets)
+
+    def get_bronze_source_properties(self):
+        return self.bronze_source_properties
+
+    def get_bronze_properties(self):
+        return BronzeProperties(self.env,self.bronze_schema,self.bronze_table,self.bronze_bucket_proxy.get_bucket_name(),self.bucket_file_path,self.parquet_file_name_template)
+
+    def get_externaltablepartition_properties(self):
+        return self.externaltablepartition
+    
+    def get_logger(self):
+        return self.logger
+
+    def get_bronze_bucket_settings(self):
+        return self.bronze_bucket_settings
+    
+    def get_bucket_parquet_files_sent(self):
+        return self.bucket_list_parquet_files_sent
+        
+    def get_bronze_row_lastupdate_date(self):
+        if not self.bronze_date_lastupdated_row:
+            v_dict_join = self.get_externaltablepartition_properties()._asdict()
+            v_join= " AND ".join([f"{INVERTED_EXTERNAL_TABLE_PARTITION_SYNONYMS.get(key,key)} = '{value}'" for key, value in v_dict_join.items()])
+            self.bronze_date_lastupdated_row = self.get_bronzedb_manager().get_bronze_lastupdated_row(self.bronze_table, self.bronze_source_properties.date_criteria,v_join)
+        return self.bronze_date_lastupdated_row
+
+    def get_source_table_indexes(self):
+        # Get source table indexes if not already defined 
+        if not self.source_table_indexes:
+            v_dict_source_table_indexes = self.source_db.get_table_indexes(self.get_bronze_source_properties().table)
+            v_source_table_indexes =  dict_to_string(v_dict_source_table_indexes)
+            self.source_table_indexes = v_source_table_indexes.replace('\'','') if v_source_table_indexes else None
+        return self.source_table_indexes
+    
+    def get_bronze_bis_merge_join(self):
+        # build join based on source table indexes : search for unique index
+        #  unique index name ends with _U{digit} or _PK
+        if not self.bronze_bis_merge_join:
+            # convert string with tables indexes to dictionnary
+            v_dict_tables_indexes = convert_string_to_dict(self.get_source_table_indexes())
+            v_pattern = re.compile(r'.*_(U\d+|PK)$')
+            v_key = None
+            # search key (index name) ends with _U{digit} or _PK
+            for key in v_dict_tables_indexes:
+                if v_pattern.match(key):
+                    v_key = key
+                    break
+            # get list of index columns
+            v_list_columns_index = v_dict_tables_indexes[v_key] if v_key else None
+            # build join for merge between source table S and target table T
+            v_join= " AND ".join([f"T.{value} = S.{value}" for value in v_list_columns_index]) if v_list_columns_index else None
+            self.bronze_bis_merge_join = v_join
+    
+        return self.bronze_bis_merge_join
+       
     def __set_local_workgingdir__(self, path):
         # Create a temporary directory if it doesn't exist
         if not os.path.exists(path):
@@ -1326,60 +1408,6 @@ class BronzeSourceBuilder:
             self.logger.log(pError=err, pAction=vError)
             return False
 
-    def set_bronzedb_connection(self,pBronzeDbManager:BronzeDbManager):
-        self.bronzedb_manager = pBronzeDbManager
-        
-    def update_total_duration(self):
-        self.total_duration = datetime.now() - self.start 
-
-    def get_bronze_config(self):
-        return self.bronze_config
-
-    def get_bronzedb_manager(self):
-        return self.bronzedb_manager
-    
-    def get_post_procedure_parameters(self):
-        if self.bronze_source_properties.bronze_post_proc:
-            return (self.bronze_source_properties.bronze_post_proc,self.bronze_source_properties.bronze_post_proc_args)
-        else:
-            return None
-    
-    def get_rows_stats(self):
-        return (self.total_imported_rows, self.total_imported_rows_size)
-
-    def get_durations_stats(self):
-        return (self.total_duration,self.fetch_duration,self.upload_parquets_duration)
-
-    def get_parquets_stats(self):
-        return (self.total_sent_parquets, self.total_sent_parquets_size,self.total_temp_parquets)
-
-    def get_bronze_source_properties(self):
-        return self.bronze_source_properties
-
-    def get_bronze_properties(self):
-        return BronzeProperties(self.env,self.bronze_schema,self.bronze_table,self.bronze_bucket_proxy.get_bucket_name(),self.bucket_file_path,self.parquet_file_name_template)
-
-    def get_externaltablepartition_properties(self):
-        return self.externaltablepartition
-    
-    def get_logger(self):
-        return self.logger
-
-    def get_bronze_row_lastupdate_date(self):
-        if not self.bronze_date_lastupdated_row:
-            v_dict_join = self.get_externaltablepartition_properties()._asdict()
-            v_join= " AND ".join([f"{INVERTED_EXTERNAL_TABLE_PARTITION_SYNONYMS.get(key,key)} = '{value}'" for key, value in v_dict_join.items()])
-            self.bronze_date_lastupdated_row = self.get_bronzedb_manager().get_bronze_lastupdated_row(self.bronze_table, self.bronze_source_properties.date_criteria,v_join)
-        return self.bronze_date_lastupdated_row
-    
-    def get_bronze_bucket_settings(self):
-        return self.bronze_bucket_settings
-    
-    def get_bucket_parquet_files_sent(self):
-        return self.bucket_list_parquet_files_sent
-    
-    def get_source_table_indexes(self):
-        return self.source_table_indexes
     
     def send_parquet_files_to_oci(self,verbose=None):
         self.upload_parquets_start = datetime.now()
@@ -1499,7 +1527,7 @@ class BronzeGenerator:
             if not self.v_bronzesourcebuilder.update_bronze_schema(verbose):
                 break
 
-            # 4 Update "last parquet file uploaded", "Last_update" for incremental table integration
+            # 4 Update "last parquet file uploaded", source table index columns, "Last_update" for incremental table integration
             vSourceProperties = self.v_bronzesourcebuilder.get_bronze_source_properties()
             v_dict_update_exploit = dict()
             # Get bronze table name to update Exploit loading table
@@ -1510,10 +1538,17 @@ class BronzeGenerator:
             v_dict_update_exploit['lastuploaded_parquet'] = v_last_bucket_parquet_file_sent
             #Get indexes of source table
             v_dict_update_exploit['source_table_indexes'] = self.v_bronzesourcebuilder.get_source_table_indexes()
-             # if incremental integration, get lastupdate date to update Exploit loading table
-            v_lastupdate_date = self.v_bronzesourcebuilder.get_bronze_row_lastupdate_date() if vSourceProperties.incremental else None
+             # if incremental integration, get lastupdate date to update Exploit loading table and build bronze bis merge join            
+            if vSourceProperties.incremental:
+                v_lastupdate_date = self.v_bronzesourcebuilder.get_bronze_row_lastupdate_date()
+                v_bronze_bis_merge_join = self.v_bronzesourcebuilder.get_bronze_bis_merge_join()
+            else:
+                v_lastupdate_date = None
+                v_bronze_bis_merge_join = None
             #print(last_date, type(last_date))
             v_dict_update_exploit['last_update'] = v_lastupdate_date
+            v_dict_update_exploit['bronze_bis_merge_join'] = v_bronze_bis_merge_join
+            
             if not self.v_bronzeexploit.update_exploit(v_dict_update_exploit,p_source=vSourceProperties):
                 break
             # Run Post integration PLSQL procedure for current source

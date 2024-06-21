@@ -16,11 +16,6 @@ class BronzeSourceBuilderDb(BronzeSourceBuilder):
             raise Exception(vError)
         # Customize select to force encode of columns
         self.__custom_select_from_source__()
-        # Get source table indexes if not already defined 
-        if not self.source_table_indexes:
-            v_source_table_indexes = self.source_db.get_table_indexes(self.get_bronze_source_properties().table)
-            v_dict_source_tables_indexes =  dict_to_string(v_source_table_indexes)
-            self.source_table_indexes = v_dict_source_tables_indexes.replace('\'','') if v_dict_source_tables_indexes else None
 
     def __set_bronze_bucket_proxy__(self):
         #define settings for bucket, especially storagename... could depends on subclass
