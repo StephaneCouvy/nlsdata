@@ -1187,10 +1187,11 @@ class BronzeSourceBuilder:
             v_pattern = re.compile(r'.*_(U\d+|PK)$')
             v_key = None
             # search key (index name) ends with _U{digit} or _PK
-            for key in v_dict_tables_indexes:
-                if v_pattern.match(key):
-                    v_key = key
-                    break
+            if v_dict_tables_indexes:
+                for key in v_dict_tables_indexes:
+                    if v_pattern.match(key):
+                        v_key = key
+                        break
             # get list of index columns
             v_list_columns_index = v_dict_tables_indexes[v_key] if v_key else None
             # build join for merge between source table S and target table T
@@ -1511,24 +1512,29 @@ class BronzeGenerator:
         self.v_bronzeexploit = pBronzeExploit
         self.v_logger = pLogger
 
-    def generate(self,verbose=None):
+    def generate(self,p_verbose=None):
         while True:
-            generate_result = False
+            v_generate_result = False
             # 1 Fetch data from source
-            self.v_bronzesourcebuilder.pre_fetch_source(verbose)
-            if not self.v_bronzesourcebuilder.fetch_source(verbose):
+            self.v_bronzesourcebuilder.pre_fetch_source(p_verbose)
+            if not self.v_bronzesourcebuilder.fetch_source(p_verbose):
                 break
 
             # 2 Upload parquets files to bucket
-            if not self.v_bronzesourcebuilder.send_parquet_files_to_oci(verbose):
+            if not self.v_bronzesourcebuilder.send_parquet_files_to_oci(p_verbose):
                 break
 
             # 3 - Create/Update external table into Autonomous
-            if not self.v_bronzesourcebuilder.update_bronze_schema(verbose):
+            if not self.v_bronzesourcebuilder.update_bronze_schema(p_verbose):
                 break
 
             # 4 Update "last parquet file uploaded", source table index columns, "Last_update" for incremental table integration
-            vSourceProperties = self.v_bronzesourcebuilder.get_bronze_source_properties()
+            v_sourceProperties = self.v_bronzesourcebuilder.get_bronze_source_properties()
+            if p_verbose:
+                #print(vSourceProperties)
+                v_message = "Update Exploit table for {} {} {}".format(v_sourceProperties.name, v_sourceProperties.schema,v_sourceProperties.table)
+                p_verbose.log(datetime.now(tz=timezone.utc), "INTEGRATE", "RUNNING", log_message=v_message)
+            
             v_dict_update_exploit = dict()
             # Get bronze table name to update Exploit loading table
             v_dict_update_exploit['bronze_table_name'] = self.v_bronzesourcebuilder.get_bronze_properties().table
@@ -1539,7 +1545,7 @@ class BronzeGenerator:
             #Get indexes of source table
             v_dict_update_exploit['source_table_indexes'] = self.v_bronzesourcebuilder.get_source_table_indexes()
              # if incremental integration, get lastupdate date to update Exploit loading table and build bronze bis merge join            
-            if vSourceProperties.incremental:
+            if v_sourceProperties.incremental:
                 v_lastupdate_date = self.v_bronzesourcebuilder.get_bronze_row_lastupdate_date()
                 v_bronze_bis_merge_join = self.v_bronzesourcebuilder.get_bronze_bis_merge_join()
             else:
@@ -1549,26 +1555,26 @@ class BronzeGenerator:
             v_dict_update_exploit['last_update'] = v_lastupdate_date
             v_dict_update_exploit['bronze_bis_merge_join'] = v_bronze_bis_merge_join
             
-            if not self.v_bronzeexploit.update_exploit(v_dict_update_exploit,p_source=vSourceProperties):
+            if not self.v_bronzeexploit.update_exploit(v_dict_update_exploit,p_source=v_sourceProperties):
                 break
             # Run Post integration PLSQL procedure for current source
-            vPost_proc_param = self.v_bronzesourcebuilder.get_post_procedure_parameters()
-            if vPost_proc_param:
-                vBronze_table = self.v_bronzesourcebuilder.get_bronze_properties().table
-                vResult_post_proc = self.v_bronzesourcebuilder.get_bronzedb_manager().run_proc(vPost_proc_param[0],*vPost_proc_param[1],p_verbose=verbose,p_proc_exe_context=vBronze_table)
-                if not vResult_post_proc:
+            v_post_proc_param = self.v_bronzesourcebuilder.get_post_procedure_parameters()
+            if v_post_proc_param:
+                v_bronze_table = self.v_bronzesourcebuilder.get_bronze_properties().table
+                v_result_post_proc = self.v_bronzesourcebuilder.get_bronzedb_manager().run_proc(v_post_proc_param[0],*v_post_proc_param[1],p_verbose=p_verbose,p_proc_exe_context=v_bronze_table)
+                if not v_result_post_proc:
                     break
             
-            generate_result = True
+            v_generate_result = True
             break
         self.v_bronzesourcebuilder.update_total_duration()
-        if generate_result:
-            if verbose:
+        if v_generate_result:
+            if p_verbose:
                 #print(vSourceProperties)
-                message = "Integrating {3} rows from {0} {1} {2} in {4}".format(vSourceProperties.name, vSourceProperties.schema,
-                                                                         vSourceProperties.table, self.v_bronzesourcebuilder.get_rows_stats()[0],self.v_bronzesourcebuilder.get_durations_stats()[0])
-                verbose.log(datetime.now(tz=timezone.utc), "INTEGRATE", "END", log_message=message)
+                v_message = "Integrating {3} rows from {0} {1} {2} in {4}".format(v_sourceProperties.name, v_sourceProperties.schema,
+                                                                         v_sourceProperties.table, self.v_bronzesourcebuilder.get_rows_stats()[0],self.v_bronzesourcebuilder.get_durations_stats()[0])
+                p_verbose.log(datetime.now(tz=timezone.utc), "INTEGRATE", "END", log_message=v_message)
             if self.v_logger:
                 self.v_logger.log()
-        return generate_result
+        return v_generate_result
 
