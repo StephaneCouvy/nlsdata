@@ -17,6 +17,43 @@ class BronzeSourceBuilderDb(BronzeSourceBuilder):
         # Customize select to force encode of columns
         self.__custom_select_from_source__()
 
+    def get_bronze_row_lastupdate_date(self):
+        if not self.bronze_date_lastupdated_row:
+            v_dict_join = self.get_externaltablepartition_properties()._asdict()
+            v_join= " AND ".join([f"{INVERTED_EXTERNAL_TABLE_PARTITION_SYNONYMS.get(key,key)} = '{value}'" for key, value in v_dict_join.items()])
+            self.bronze_date_lastupdated_row = self.get_bronzedb_manager().get_bronze_lastupdated_row(self.bronze_table, self.bronze_source_properties.date_criteria,v_join)
+        return self.bronze_date_lastupdated_row
+    
+    def get_source_table_indexes(self):
+        # Get source table indexes if not already defined 
+        if not self.source_table_indexes:
+            v_dict_source_table_indexes = self.source_db.get_table_indexes(self.get_bronze_source_properties().table)
+            v_source_table_indexes =  dict_to_string(v_dict_source_table_indexes)
+            self.source_table_indexes = v_source_table_indexes.replace('\'','') if v_source_table_indexes else None
+        return self.source_table_indexes
+    
+    def get_bronze_bis_merge_join(self):
+        # build join based on source table indexes : search for unique index
+        #  unique index name ends with _U{digit} or _PK
+        if not self.bronze_bis_merge_join:
+            # convert string with tables indexes to dictionnary
+            v_dict_tables_indexes = convert_string_to_dict(self.get_source_table_indexes())
+            v_pattern = re.compile(r'.*_(U\d+|PK)$')
+            v_key = None
+            # search key (index name) ends with _U{digit} or _PK
+            if v_dict_tables_indexes:
+                for key in v_dict_tables_indexes:
+                    if v_pattern.match(key):
+                        v_key = key
+                        break
+            # get list of index columns
+            v_list_columns_index = v_dict_tables_indexes[v_key] if v_key else None
+            # build join for merge between source table S and target table T
+            v_join= " AND ".join([f"T.{value} = S.{value}" for value in v_list_columns_index]) if v_list_columns_index else None
+            self.bronze_bis_merge_join = v_join
+    
+        return self.bronze_bis_merge_join
+    
     def __set_bronze_bucket_proxy__(self):
         #define settings for bucket, especially storagename... could depends on subclass
         self.bronze_bucket_proxy.set_bucket_by_extension(p_bucket_extension=self.get_bronze_source_properties().name)
