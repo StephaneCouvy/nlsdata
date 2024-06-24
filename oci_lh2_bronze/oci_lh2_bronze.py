@@ -933,7 +933,7 @@ class BronzeDbManager:
                 self.bronzeDb_Manager_logger.log(pError=v_err, pAction=v_action)
             return v_return
        
-    def bronze_drop_tables_by_query(self,p_query:str,p_bronze_exploit:BronzeExploit,p_simulate=False,p_verbose=None):
+    def bronze_drop_tables_by_query(self,p_query:str,p_bronze_exploit:BronzeExploit,p_simulate=False,p_ask_to_drop=True,p_verbose=None):
         # drop bronze tables 
         # list of tables return by query on dataframe df_lh2_tables_stats
         v_start = datetime.now()
@@ -959,7 +959,15 @@ class BronzeDbManager:
             if p_verbose:
                 v_log_message = "{} tables to be dropped : {}".format(len(v_table_list_to_drop),v_table_list_to_drop)
                 p_verbose.log(datetime.now(tz=timezone.utc), "DROP_TABLES_QUERY", "RUNNING", log_message=v_log_message)
-            #pause()
+            if p_ask_to_drop:
+                v_user_ask_to_drop = ask_user("Confirm to drop tables")
+                if v_user_ask_to_drop == "N":
+                    v_request = "Drop tables on query {} : \n{}".format(p_query,v_table_list_to_drop)
+                    v_log_message = "COMPLETED - NOT CONFIRMED" + v_request
+                    v_action = "COMPLETED" if not p_simulate else "COMPLETED - SIMULATE"
+                    v_err = None
+                    v_return = True
+                    return True
             for _,v_row in v_filtered_df_lh2_bronze_tables.iterrows():
                 v_table_data = v_row.to_dict()
                 v_table_name = v_table_data['TABLE_NAME']
