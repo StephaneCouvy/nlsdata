@@ -950,7 +950,8 @@ class BronzeDbManager:
             if p_verbose:
                 p_verbose.log(datetime.now(tz=timezone.utc), "DROP_TABLES_QUERY","START",log_message=v_log_message)
             
-            v_filtered_df_lh2_bronze_tables = create_filter_mask(self.get_lh2_bronze_tables_stats(),p_query)
+            v_filtered_df_lh2_bronze_table_without_zombies = create_filter_mask(self.get_lh2_bronze_tables_stats(),f'TABLE_NAME != \'{ZOMBIES_TABLE_NAME}\'')
+            v_filtered_df_lh2_bronze_tables = create_filter_mask(v_filtered_df_lh2_bronze_table_without_zombies,p_query)
             print(v_filtered_df_lh2_bronze_tables)
             if v_filtered_df_lh2_bronze_tables is None:
                 raise Exception("ERROR, Filtering bronze tables list, review your drop query")
