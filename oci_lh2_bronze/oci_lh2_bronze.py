@@ -889,6 +889,10 @@ class BronzeDbManager:
                 v_log_message = "Table {}.{} does not exist ".format(self.get_db_username(),p_table_name)
                 if p_verbose:
                     p_verbose.log(datetime.now(tz=timezone.utc), "DROP_TABLE","START",log_message=v_log_message)
+                v_log_message = "COMPLETED - "+ v_request
+                v_action = "COMPLETED" if not p_simulate else "COMPLETED - SIMULATE" 
+                v_err = None
+                v_return = True
                 return True
             # Filter on table name  and ower = db user name
             v_mask = (self.df_bronze_tables_stats['OWNER'] == self.get_db_username()) & (self.df_bronze_tables_stats['TABLE_NAME'] == p_table_name)
