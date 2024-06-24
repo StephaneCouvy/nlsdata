@@ -17,7 +17,7 @@ EXPLOIT_ARG_RELOAD_ON_ERROR_INTERVAL = 'x'
 EXPLOIT_ARG_NOT_DROP_TEMP_RUNNING_LOADING_TABLE = 'k'
 
 ZOMBIES_TABLE_NAME = 'ZOMBIES'
-RESET_DATE_LASTUPDATE = datetime.strptime('2018-01-01 00:00:00', '%Y-%m-%d %H:%M:%S')
+#RESET_DATE_LASTUPDATE = datetime.strptime('2018-01-01 00:00:00', '%Y-%m-%d %H:%M:%S')
 
 FILESTORAGE_BRONZE_BUCKET_DEBUG = 'BRONZE_BUCKET_DEBUG'
 FILESTORAGE_BRONZE_BUCKET = 'BRONZE_BUCKET'
@@ -32,7 +32,7 @@ PARQUET_FILE_EXTENSION = ".parquet"
 DBFACTORY = NLSDbFactory()
 FILESTORAGEFACTORY = NLSFileStorageFactory()
 
-SOURCE_PROPERTIES_SYNONYMS = {'SRC_TYPE': 'type', 'SRC_NAME': 'name', 'SRC_ORIGIN_NAME': 'schema', 'SRC_OBJECT_NAME': 'table', 'SRC_OBJECT_CONSTRAINT': 'table_constraint', 'SRC_FLAG_ACTIVE': 'active', 'SRC_FLAG_INCR': 'incremental', 'SRC_DATE_CONSTRAINT': 'date_criteria', 'SRC_DATE_LASTUPDATE': 'last_update', 'FORCE_ENCODE': 'force_encode', 'BRONZE_BIS_JOIN':'bronze_bis_merge_join','BRONZE_POST_PROCEDURE': 'bronze_post_proc', 'BRONZE_POST_PROCEDURE_ARGS': 'bronze_post_proc_args','BRONZE_TABLE_NAME':'bronze_table_name','BRONZE_LASTUPLOADED_PARQUET':'lastuploaded_parquet','SRC_TABLE_IDX':'source_table_indexes'}
+SOURCE_PROPERTIES_SYNONYMS = {'SRC_TYPE': 'type', 'SRC_NAME': 'name', 'SRC_ORIGIN_NAME': 'schema', 'SRC_OBJECT_NAME': 'table', 'SRC_OBJECT_CONSTRAINT': 'table_constraint', 'SRC_FLAG_ACTIVE': 'active', 'SRC_FLAG_INCR': 'incremental', 'SRC_DATE_CONSTRAINT': 'date_criteria', 'SRC_DATE_LASTUPDATE': 'last_update', 'FORCE_ENCODE': 'force_encode', 'BRONZE_BIS_JOIN':'bronze_bis_merge_join','BRONZE_POST_PROCEDURE': 'bronze_post_proc', 'BRONZE_POST_PROCEDURE_ARGS': 'bronze_post_proc_args','BRONZE_TABLE_NAME':'bronze_table_name','BRONZE_LASTUPLOADED_PARQUET':'lastuploaded_parquet','SRC_TABLE_IDX':'source_table_indexes','RESET_LASTUPDATE':'reset_lastupdate'}
 INVERTED_SOURCE_PROPERTIES_SYNONYMS = {value: key for key, value in SOURCE_PROPERTIES_SYNONYMS.items()}
 SourceProperties = namedtuple('SourceProperties',list(SOURCE_PROPERTIES_SYNONYMS.values()))
 
@@ -265,8 +265,8 @@ class BronzeExploit:
         # Execute a SQL query to fetch activ data from the table "LIST_DATASOURCE_LOADING_..." into a dataframe
         v_sql = "select * from " + self.exploit_running_loading_table + " where SRC_FLAG_ACTIV = 1 ORDER BY SRC_TYPE,SRC_NAME,SRC_OBJECT_NAME"
         v_cursor.execute(v_sql)
-        self.df_param = pd.DataFrame(v_cursor.fetchall())
-        self.df_param.columns = [x[0] for x in v_cursor.description]
+        self.df_exploit_param = pd.DataFrame(v_cursor.fetchall())
+        self.df_exploit_param.columns = [x[0] for x in v_cursor.description]
         #self.iterator = iter(map(SourceProperties._make,vCursor.fetchall()))
         v_cursor.close()
 
@@ -281,20 +281,52 @@ class BronzeExploit:
                 self.verbose.log(datetime.now(tz=timezone.utc), "EXPLOIT", "END", log_message=message)
    
     def __iter__(self):
+        # Reset the index whenever a new iterator is requested
+        self.idx = 0
         return self
 
     def __next__(self):
         try:
             #items = [self.df_param.iloc[self.idx,i] for i in range(len(self.df_param.columns))]
-            v_line = self.df_param.iloc[self.idx].tolist()
+            v_line = self.df_exploit_param.iloc[self.idx].tolist()
             v_items = SourceProperties(*v_line)
         except IndexError:
             raise StopIteration()
         self.idx += 1
         return v_items
-        
-        #return next(self.iterator)
 
+    def __getitem__(self, p_key):
+        v_df_filtered_data = self.df_exploit_param[self.df_exploit_param['BRONZE_TABLE_NAME'] == p_key]
+        if v_df_filtered_data.empty:
+            raise KeyError(f"Key '{p_key}' not found")
+        v_line = v_df_filtered_data.iloc[0].tolist()
+        v_items = SourceProperties(*v_line)
+        return v_items
+
+    def __setitem__(self, p_key, p_value):
+        v_index = self.data[self.df_exploit_param['BRONZE_TABLE_NAME'] == p_key].index
+        if not v_index.empty:
+            self.df_exploit_param.loc[v_index[0], self.df_exploit_param.columns != 'BRONZE_TABLE_NAME'] = p_value
+        else:
+            v_new_row = pd.Series(p_value, index=self.df_exploit_param.columns.drop('BRONZE_TABLE_NAME'))
+            v_new_row['BRONZE_TABLE_NAME'] = p_key
+            self.df_exploit_param = self.data.append(v_new_row, ignore_index=True)
+
+    def items(self):
+        for index, row in self.df_exploit_param.iterrows():
+            v_line = row.tolist()
+            v_items = SourceProperties(*v_line)
+            yield row['BRONZE_TABLE_NAME'], v_items
+
+    def keys(self):
+        return self.df_exploit_param['BRONZE_TABLE_NAME']
+
+    def values(self):
+        for index, row in self.df_exploit_param.iterrows():
+            v_line = row.tolist()
+            v_items = SourceProperties(*v_line)
+            yield v_items
+            
     def get_db(self) -> absdb:
         return self.exploit_db
     
@@ -351,7 +383,7 @@ class BronzeExploit:
             return False
 
     def __str__(self):
-        return f"BronzeExploit: exploit_running_loading_table={self.exploit_running_loading_table}, df_param={self.df_param}"
+        return f"BronzeExploit: exploit_running_loading_table={self.exploit_running_loading_table}, df_param={self.df_exploit_param}"
 
 class BronzeDbManager:
     # object to manage connection to bronze database
@@ -932,8 +964,9 @@ class BronzeDbManager:
                     # if drop table successfull, reset BRONZE_LASTUPLOADED_PARQUET , and SRC_DATE_LASTUPDATE to RESET_DATE_LASTUPDATE for Incremental table (Partitioned table)
                     v_dict_update_exploit = dict()
                     v_dict_update_exploit['bronze_lastuploaded_parquet']=None
-                    if v_table_partitioned.upper() == 'YES':
-                        v_dict_update_exploit['last_update']=RESET_DATE_LASTUPDATE
+                    v_row_exploit = p_bronze_exploit[v_table_name]
+                    v_reset_date_lastupdate = v_row_exploit.reset_lastupdate
+                    v_dict_update_exploit['last_update']=v_reset_date_lastupdate
                         
                     if p_verbose:
                         v_log_message = "Update Exploit loading table {} , reset {} - Simulate = {}".format(v_table_name,v_dict_update_exploit,str(p_simulate))
