@@ -60,9 +60,13 @@ class BronzeSourceBuilderDb(BronzeSourceBuilder):
     
     def __set_bronze_table_settings__(self):
         #define bronze table name, bucket path to add parquet files, get index to restart parquet files interation
-        self.bronze_table = self.get_bronze_source_properties().name + "_" + self.get_bronze_source_properties().schema + "_" + self.get_bronze_source_properties().table.replace(" ", "_")
+        v_bronze_table_name = self.get_bronze_source_properties().bronze_table_name
+        if not v_bronze_table_name:
+            v_bronze_table_name = self.bronze_table = self.get_bronze_source_properties().name + "_" + self.get_bronze_source_properties().schema + "_" + self.get_bronze_source_properties().table.replace(" ", "_")
+        self.bronze_table = v_bronze_table_name.upper()
         # define template name of parquet files
-        self.parquet_file_name_template = self.get_bronze_source_properties().name + "_" + self.get_bronze_source_properties().table.replace(" ", "_")
+        #self.parquet_file_name_template = self.get_bronze_source_properties().name + "_" + self.get_bronze_source_properties().table.replace(" ", "_")
+        self.parquet_file_name_template = self.bronze_table
         self.parquet_file_id = 0
         # Define the path for storing parquets files in the bucket
         #self.bucket_file_path = self.get_bronze_source_properties().schema + "/" + self.year + "/" + self.month + "/" + self.day + "/"
