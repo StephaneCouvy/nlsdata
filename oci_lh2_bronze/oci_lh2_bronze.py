@@ -32,7 +32,7 @@ PARQUET_FILE_EXTENSION = ".parquet"
 DBFACTORY = NLSDbFactory()
 FILESTORAGEFACTORY = NLSFileStorageFactory()
 
-SOURCE_PROPERTIES_SYNONYMS = {'SRC_TYPE': 'type', 'SRC_NAME': 'name', 'SRC_ORIGIN_NAME': 'schema', 'SRC_OBJECT_NAME': 'table', 'SRC_OBJECT_CONSTRAINT': 'table_constraint', 'SRC_FLAG_ACTIVE': 'active', 'SRC_FLAG_INCR': 'incremental', 'SRC_DATE_CONSTRAINT': 'date_criteria', 'SRC_DATE_LASTUPDATE': 'last_update', 'FORCE_ENCODE': 'force_encode', 'BRONZE_BIS_JOIN':'bronze_bis_merge_join','BRONZE_POST_PROCEDURE': 'bronze_post_proc', 'BRONZE_POST_PROCEDURE_ARGS': 'bronze_post_proc_args','BRONZE_TABLE_NAME':'bronze_table_name','BRONZE_LASTUPLOADED_PARQUET':'lastuploaded_parquet','SRC_TABLE_IDX':'source_table_indexes','RESET_LASTUPDATE':'reset_lastupdate'}
+SOURCE_PROPERTIES_SYNONYMS = {'SRC_TYPE': 'type', 'SRC_NAME': 'name', 'SRC_ORIGIN_NAME': 'schema', 'SRC_OBJECT_NAME': 'table', 'SRC_OBJECT_CONSTRAINT': 'table_constraint', 'SRC_FLAG_ACTIVE': 'active', 'SRC_FLAG_INCR': 'incremental', 'SRC_DATE_CONSTRAINT': 'date_criteria', 'SRC_DATE_LASTUPDATE': 'last_update', 'FORCE_ENCODE': 'force_encode', 'BRONZE_BIS_JOIN':'bronze_bis_merge_join','BRONZE_POST_PROCEDURE': 'bronze_post_proc', 'BRONZE_POST_PROCEDURE_ARGS': 'bronze_post_proc_args','BRONZE_TABLE_NAME':'bronze_table_name','BRONZE_LASTUPLOADED_PARQUET':'lastuploaded_parquet','SRC_TABLE_IDX':'source_table_indexes','RESET_LASTUPDATE':'reset_lastupdate','BRONZE_UPDATE':'bronze_update'}
 INVERTED_SOURCE_PROPERTIES_SYNONYMS = {value: key for key, value in SOURCE_PROPERTIES_SYNONYMS.items()}
 SourceProperties = namedtuple('SourceProperties',list(SOURCE_PROPERTIES_SYNONYMS.values()))
 
@@ -1563,6 +1563,8 @@ class BronzeGenerator:
             v_list = self.v_bronzesourcebuilder.get_bucket_parquet_files_sent()
             v_last_bucket_parquet_file_sent = v_list[-1] if v_list else None
             v_dict_update_exploit['lastuploaded_parquet'] = v_last_bucket_parquet_file_sent
+            # Set date when bronze table has been updated
+            v_dict_update_exploit['bronze_update'] = datetime.now(tz=timezone.utc)
             #Get indexes of source table
             v_dict_update_exploit['source_table_indexes'] = self.v_bronzesourcebuilder.get_source_table_indexes()
              # if incremental integration, get lastupdate date to update Exploit loading table and build bronze bis merge join            
