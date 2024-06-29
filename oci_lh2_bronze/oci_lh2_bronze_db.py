@@ -33,7 +33,7 @@ class BronzeSourceBuilderDb(BronzeSourceBuilder):
         return self.source_table_indexes
     
     def get_bronze_bis_pk(self):
-        # build join based on source table indexes : search for unique index
+        # list columns of primary key  based on source table indexes : search for unique index
         #  unique index name ends with _U{digit} or _PK
         if not self.bronze_bis_pk:
             # convert string with tables indexes to dictionnary
@@ -47,7 +47,10 @@ class BronzeSourceBuilderDb(BronzeSourceBuilder):
                         v_key = key
                         break
             # get list of index columns
-            self.bronze_bis_pk = v_dict_tables_indexes[v_key] if v_key else None
+            v_list_columns_index = v_dict_tables_indexes[v_key] if v_key else None
+            # build join for merge between source table S and target table T
+            v_pk_columns = ",".join([f"{value}" for value in v_list_columns_index]) if v_list_columns_index else None
+            self.bronze_bis_pk = v_pk_columns
     
         return self.bronze_bis_pk
     

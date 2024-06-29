@@ -1224,7 +1224,7 @@ class BronzeSourceBuilder:
         return None
     
     def get_bronze_bis_pk(self):
-        # build join based on source table indexes : search for unique index
+        # list columns of primary key based on source table indexes : search for unique index
         #  unique index name ends with _U{digit} or _PK
         return None
        
