@@ -32,10 +32,10 @@ class BronzeSourceBuilderDb(BronzeSourceBuilder):
             self.source_table_indexes = v_source_table_indexes.replace('\'','') if v_source_table_indexes else None
         return self.source_table_indexes
     
-    def get_bronze_bis_merge_join(self):
+    def get_bronze_bis_pk(self):
         # build join based on source table indexes : search for unique index
         #  unique index name ends with _U{digit} or _PK
-        if not self.bronze_bis_merge_join:
+        if not self.bronze_bis_pk:
             # convert string with tables indexes to dictionnary
             v_dict_tables_indexes = convert_string_to_dict(self.get_source_table_indexes())
             v_pattern = re.compile(r'.*_(U\d+|PK)$')
@@ -47,12 +47,9 @@ class BronzeSourceBuilderDb(BronzeSourceBuilder):
                         v_key = key
                         break
             # get list of index columns
-            v_list_columns_index = v_dict_tables_indexes[v_key] if v_key else None
-            # build join for merge between source table S and target table T
-            v_join= " AND ".join([f"T.{value} = S.{value}" for value in v_list_columns_index]) if v_list_columns_index else None
-            self.bronze_bis_merge_join = v_join
+            self.bronze_bis_pk = v_dict_tables_indexes[v_key] if v_key else None
     
-        return self.bronze_bis_merge_join
+        return self.bronze_bis_pk
     
     def __set_bronze_bucket_proxy__(self):
         #define settings for bucket, especially storagename... could depends on subclass
