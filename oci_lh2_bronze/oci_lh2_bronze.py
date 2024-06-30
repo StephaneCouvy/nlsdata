@@ -1606,9 +1606,10 @@ class BronzeGenerator:
             else:
                 v_lastupdate_date = None
                 v_bronze_bis_pk = None
-            #print(last_date, type(last_date))
-            v_dict_update_exploit['last_update'] = v_lastupdate_date
-            v_dict_update_exploit['bronze_bis_pk'] = v_bronze_bis_pk
+            if v_lastupdate_date:
+                v_dict_update_exploit['last_update'] = v_lastupdate_date
+            if v_bronze_bis_pk:
+                v_dict_update_exploit['bronze_bis_pk'] = v_bronze_bis_pk
             # Set date when bronze table has been updated
             v_dict_update_exploit['bronze_update'] = datetime.now(tz=timezone.utc)
             self.v_bronzesourcebuilder.set_bronze_status('completed')
