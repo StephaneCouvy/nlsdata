@@ -32,7 +32,8 @@ PARQUET_FILE_EXTENSION = ".parquet"
 DBFACTORY = NLSDbFactory()
 FILESTORAGEFACTORY = NLSFileStorageFactory()
 
-SOURCE_PROPERTIES_SYNONYMS = {'SRC_TYPE': 'type', 'SRC_NAME': 'name', 'SRC_ORIGIN_NAME': 'schema', 'SRC_OBJECT_NAME': 'table', 'SRC_OBJECT_CONSTRAINT': 'table_constraint', 'SRC_FLAG_ACTIVE': 'active', 'SRC_FLAG_INCR': 'incremental', 'SRC_DATE_CONSTRAINT': 'date_criteria', 'SRC_DATE_LASTUPDATE': 'last_update', 'FORCE_ENCODE': 'force_encode', 'BRONZE_BIS_JOIN':'bronze_bis_merge_join','BRONZE_POST_PROCEDURE': 'bronze_post_proc', 'BRONZE_POST_PROCEDURE_ARGS': 'bronze_post_proc_args','BRONZE_TABLE_NAME':'bronze_table_name','BRONZE_LASTUPLOADED_PARQUET':'lastuploaded_parquet','SRC_TABLE_IDX':'source_table_indexes','RESET_LASTUPDATE':'reset_lastupdate','BRONZE_UPDATE':'bronze_update'}
+DICT_STATUS_CODE = {'completed':'COMPLETED','error':'ERROR','data_fetched':'FETCHED','parquet_sent':'UPLOADED','bronze_updated':'UPDATED',"fetching":"FETCHING"}
+SOURCE_PROPERTIES_SYNONYMS = {'SRC_TYPE': 'type', 'SRC_NAME': 'name', 'SRC_ORIGIN_NAME': 'schema', 'SRC_OBJECT_NAME': 'table', 'SRC_OBJECT_CONSTRAINT': 'table_constraint', 'SRC_FLAG_ACTIVE': 'active', 'SRC_FLAG_INCR': 'incremental', 'SRC_DATE_CONSTRAINT': 'date_criteria', 'SRC_DATE_LASTUPDATE': 'last_update', 'FORCE_ENCODE': 'force_encode', 'BRONZE_BIS_PK':'bronze_bis_pk','BRONZE_POST_PROCEDURE': 'bronze_post_proc', 'BRONZE_POST_PROCEDURE_ARGS': 'bronze_post_proc_args','BRONZE_TABLE_NAME':'bronze_table_name','BRONZE_LASTUPLOADED_PARQUET':'lastuploaded_parquet','SRC_TABLE_IDX':'source_table_indexes','RESET_LASTUPDATE':'reset_lastupdate','BRONZE_UPDATE':'bronze_update'}
 INVERTED_SOURCE_PROPERTIES_SYNONYMS = {value: key for key, value in SOURCE_PROPERTIES_SYNONYMS.items()}
 SourceProperties = namedtuple('SourceProperties',list(SOURCE_PROPERTIES_SYNONYMS.values()))
 
@@ -1115,7 +1116,7 @@ class BronzeSourceBuilder:
         self.bucket_file_path = "" # defined into sub-class
         self.bronze_table = "" # defined into sub-class
         self.bronze_schema = p_bronzeDb_Manager.get_db_username()
-
+        self.bronze_status = None
         # Date of last update row
         self.bronze_date_lastupdated_row = None
         
@@ -1141,7 +1142,7 @@ class BronzeSourceBuilder:
         self.source_db = None
         self.source_db_connection = None
         self.source_table_indexes = self.bronze_source_properties.source_table_indexes
-        self.bronze_bis_merge_join = self.bronze_source_properties.bronze_bis_merge_join
+        self.bronze_bis_pk = self.bronze_source_properties.bronze_bis_pk
 
         # For DB source, build select request
         self.where = ''
@@ -1203,6 +1204,12 @@ class BronzeSourceBuilder:
     def get_logger(self):
         return self.logger
 
+    def get_bronze_status(self):
+        return self.bronze_status
+    
+    def set_bronze_status(self,step:str):
+        self.bronze_status = DICT_STATUS_CODE[step]
+        
     def get_bronze_bucket_settings(self):
         return self.bronze_bucket_settings
     
@@ -1216,8 +1223,8 @@ class BronzeSourceBuilder:
         # Get source table indexes if not already defined 
         return None
     
-    def get_bronze_bis_merge_join(self):
-        # build join based on source table indexes : search for unique index
+    def get_bronze_bis_pk(self):
+        # list columns of primary key based on source table indexes : search for unique index
         #  unique index name ends with _U{digit} or _PK
         return None
        
@@ -1440,7 +1447,8 @@ class BronzeSourceBuilder:
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "UPLOAD_PARQUET", vError, log_message="")
             self.logger.log(pError=Exception(vError), pAction=vError)
-            return False
+            self.set_bronze_status('parquet_sent')
+            return True
         self.parquet_file_list_tosend = []
         if not self.bronze_source_properties.incremental:
             # if not incremental mode, merging parquet files into one, before sending
@@ -1488,6 +1496,7 @@ class BronzeSourceBuilder:
             self.logger.log(pError=err, pAction=vError)
             return False
         self.__update_sent_parquets_stats()
+        self.set_bronze_status('parquet_sent')
         return True
 
     def update_bronze_schema(self,verbose):
@@ -1508,6 +1517,8 @@ class BronzeSourceBuilder:
                 #create external part table linked to "parquet_file_name_template"xxx.parquets files from bucket root
                 # if no incremental mode, drop existing table and recreate table linked to uploaded parquet file
                 res = self.__create_bronze_table__(verbose)
+            if res:
+                self.set_bronze_status('bronze_updated')
             return res
         except Exception as err:
             vError = "ERROR Updating bronze schema, table : {}".format(self.bronze_table)
@@ -1518,6 +1529,7 @@ class BronzeSourceBuilder:
 
     def pre_fetch_source(self,verbose=None):
         # TO BE EXECUTED before fetch method
+        self.set_bronze_status('fetching')
         self.fetch_start = datetime.now()
         #delete old temporary parquet files
         self.__clean_temporary_parquet_files__()
@@ -1527,6 +1539,12 @@ class BronzeSourceBuilder:
         # and generate local parquet files
         pass
 
+    def fetch_and_process(self,verbose=None):
+        v_rest_fetch = self.fetch_source(verbose)
+        if v_rest_fetch:
+            self.set_bronze_status('data_fetched')
+        return v_rest_fetch
+    
 class BronzeGenerator:
     def __init__(self, pBronzeSourceBuilder:BronzeSourceBuilder, pBronzeExploit:BronzeExploit,pLogger:BronzeLogger=None):
         self.v_bronzesourcebuilder = pBronzeSourceBuilder
@@ -1536,48 +1554,65 @@ class BronzeGenerator:
     def generate(self,p_verbose=None):
         while True:
             v_generate_result = False
+            v_sourceProperties = self.v_bronzesourcebuilder.get_bronze_source_properties()
+            v_dict_update_exploit = dict()
+                       
             # 1 Fetch data from source
             self.v_bronzesourcebuilder.pre_fetch_source(p_verbose)
-            if not self.v_bronzesourcebuilder.fetch_source(p_verbose):
+            #### update exploit table with status of generator
+            v_dict_update_exploit['bronze_status'] = self.v_bronzesourcebuilder.get_bronze_status() 
+            if not self.v_bronzeexploit.update_exploit(v_dict_update_exploit,p_source=v_sourceProperties):
                 break
-
+            
+            if not self.v_bronzesourcebuilder.fetch_and_process(p_verbose):
+                break
+            #### update exploit table with status of generator
+            v_dict_update_exploit['bronze_status'] = self.v_bronzesourcebuilder.get_bronze_status() 
+            if not self.v_bronzeexploit.update_exploit(v_dict_update_exploit,p_source=v_sourceProperties):
+                break
+            
             # 2 Upload parquets files to bucket
             if not self.v_bronzesourcebuilder.send_parquet_files_to_oci(p_verbose):
                 break
-
+            v_dict_update_exploit['bronze_status'] = self.v_bronzesourcebuilder.get_bronze_status() 
+            if not self.v_bronzeexploit.update_exploit(v_dict_update_exploit,p_source=v_sourceProperties):
+                break
+            
             # 3 - Create/Update external table into Autonomous
             if not self.v_bronzesourcebuilder.update_bronze_schema(p_verbose):
                 break
-
+            v_dict_update_exploit['bronze_status'] = self.v_bronzesourcebuilder.get_bronze_status() 
+            if not self.v_bronzeexploit.update_exploit(v_dict_update_exploit,p_source=v_sourceProperties):
+                break
+            
             # 4 Update "last parquet file uploaded", source table index columns, "Last_update" for incremental table integration
-            v_sourceProperties = self.v_bronzesourcebuilder.get_bronze_source_properties()
             if p_verbose:
                 #print(vSourceProperties)
                 v_message = "Update Exploit table for {} {} {}".format(v_sourceProperties.name, v_sourceProperties.schema,v_sourceProperties.table)
                 p_verbose.log(datetime.now(tz=timezone.utc), "INTEGRATE", "RUNNING", log_message=v_message)
             
-            v_dict_update_exploit = dict()
             # Get bronze table name to update Exploit loading table
             v_dict_update_exploit['bronze_table_name'] = self.v_bronzesourcebuilder.get_bronze_properties().table
              # Get last uploaded parquet file to update Exploit loading table
             v_list = self.v_bronzesourcebuilder.get_bucket_parquet_files_sent()
             v_last_bucket_parquet_file_sent = v_list[-1] if v_list else None
             v_dict_update_exploit['lastuploaded_parquet'] = v_last_bucket_parquet_file_sent
-            # Set date when bronze table has been updated
-            v_dict_update_exploit['bronze_update'] = datetime.now(tz=timezone.utc)
             #Get indexes of source table
             v_dict_update_exploit['source_table_indexes'] = self.v_bronzesourcebuilder.get_source_table_indexes()
              # if incremental integration, get lastupdate date to update Exploit loading table and build bronze bis merge join            
             if v_sourceProperties.incremental:
                 v_lastupdate_date = self.v_bronzesourcebuilder.get_bronze_row_lastupdate_date()
-                v_bronze_bis_merge_join = self.v_bronzesourcebuilder.get_bronze_bis_merge_join()
+                v_bronze_bis_pk = self.v_bronzesourcebuilder.get_bronze_bis_pk()
             else:
                 v_lastupdate_date = None
-                v_bronze_bis_merge_join = None
+                v_bronze_bis_pk = None
             #print(last_date, type(last_date))
             v_dict_update_exploit['last_update'] = v_lastupdate_date
-            v_dict_update_exploit['bronze_bis_merge_join'] = v_bronze_bis_merge_join
-            
+            v_dict_update_exploit['bronze_bis_pk'] = v_bronze_bis_pk
+            # Set date when bronze table has been updated
+            v_dict_update_exploit['bronze_update'] = datetime.now(tz=timezone.utc)
+            self.v_bronzesourcebuilder.set_bronze_status('completed')
+            v_dict_update_exploit['bronze_status'] = self.v_bronzesourcebuilder.get_bronze_status()
             if not self.v_bronzeexploit.update_exploit(v_dict_update_exploit,p_source=v_sourceProperties):
                 break
             # Run Post integration PLSQL procedure for current source
