@@ -912,7 +912,7 @@ class BronzeDbManager:
             for v_index,v_row in self.df_bronze_tables_stats[v_mask].iterrows():
                 # Drop table into database
                 if not p_simulate:
-                    v_result_run_proc = self.run_proc('LH2_ADMIN_BRONZE_PKG.DROP_TABLE_PROC',*[p_table_name],p_verbose=p_verbose,p_proc_exe_context=p_table_name)
+                    v_result_run_proc = self.run_proc('LH2_BRONZE_ADMIN_PKG.DROP_TABLE_PROC',*[p_table_name],p_verbose=p_verbose,p_proc_exe_context=p_table_name)
                 else:
                     v_result_run_proc = True
                 if not v_result_run_proc:
@@ -1407,7 +1407,7 @@ class BronzeSourceBuilder:
                 message = "Dropping table {}.{} ".format(self.get_bronzedb_manager().get_db_username(),vTable)
                 verbose.log(datetime.now(tz=timezone.utc), "DROP_TABLE", "START", log_message=message)
             #cursor.execute(drop)
-            vResult_run_proc = self.get_bronzedb_manager().run_proc('LH2_ADMIN_BRONZE_PKG.DROP_TABLE_PROC',*[vTable],p_verbose=verbose,p_proc_exe_context=vTable)
+            vResult_run_proc = self.get_bronzedb_manager().run_proc('LH2_BRONZE_ADMIN_PKG.DROP_TABLE_PROC',*[vTable],p_verbose=verbose,p_proc_exe_context=vTable)
             if not vResult_run_proc:
                 raise Exception("ERROR dropping table {}".format(vTable))
             
@@ -1430,7 +1430,7 @@ class BronzeSourceBuilder:
             if verbose:
                 message = "Altering table columns type {}.{}".format(self.get_bronzedb_manager().get_db_username(),vTable)
                 verbose.log(datetime.now(tz=timezone.utc), "ALTER_TABLE", "START", log_message=message)
-            vResult_run_proc = self.get_bronzedb_manager().run_proc('LH2_ADMIN_BRONZE_PKG.ALTER_TABLE_COLUMN_TYPE_PROC',*[vTable,'BINARY_DOUBLE','NUMBER(38,10)'],p_verbose=verbose,p_proc_exe_context=vTable)
+            vResult_run_proc = self.get_bronzedb_manager().run_proc('LH2_BRONZE_ADMIN_PKG.ALTER_TABLE_COLUMN_TYPE_PROC',*[vTable,'BINARY_DOUBLE','NUMBER(38,10)'],p_verbose=verbose,p_proc_exe_context=vTable)
             if not vResult_run_proc:
                 raise Exception("ERROR altering table columns type {}.{}".format(self.get_bronzedb_manager().get_db_username(),vTable))
             cursor.close()
