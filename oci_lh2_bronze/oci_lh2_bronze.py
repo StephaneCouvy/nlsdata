@@ -15,6 +15,7 @@ EXPLOIT_ARG_LOADING_TABLE = 'l'
 EXPLOIT_ARG_LOG_TABLE = 'o'
 EXPLOIT_ARG_RELOAD_ON_ERROR_INTERVAL = 'x'
 EXPLOIT_ARG_NOT_DROP_TEMP_RUNNING_LOADING_TABLE = 'k'
+EXPLOIT_ARG_QUERY = 'q'
 
 ZOMBIES_TABLE_NAME = 'ZOMBIES'
 #RESET_DATE_LASTUPDATE = datetime.strptime('2018-01-01 00:00:00', '%Y-%m-%d %H:%M:%S')
@@ -266,9 +267,20 @@ class BronzeExploit:
         # Execute a SQL query to fetch activ data from the table "LIST_DATASOURCE_LOADING_..." into a dataframe
         v_sql = "select * from " + self.exploit_running_loading_table + " where SRC_FLAG_ACTIV = 1 ORDER BY SRC_TYPE,SRC_NAME,SRC_OBJECT_NAME"
         v_cursor.execute(v_sql)
-        self.df_exploit_param = pd.DataFrame(v_cursor.fetchall())
-        self.df_exploit_param.columns = [x[0] for x in v_cursor.description]
-        #self.iterator = iter(map(SourceProperties._make,vCursor.fetchall()))
+        v_df_exploit_datasource = pd.DataFrame(v_cursor.fetchall())
+        v_df_exploit_datasource.columns = [x[0] for x in v_cursor.description]
+        # Test if query set to filter data sources
+        v_query = optional_args.get(EXPLOIT_ARG_QUERY,None)
+        if optional_args.get(EXPLOIT_ARG_QUERY,None) :
+            self.df_exploit_datasource_loading = create_filter_mask(v_df_exploit_datasource,v_query)
+            if self.df_exploit_datasource_loading is None:
+                raise Exception("ERROR, Filtering loading tables list, review your query")
+        else:
+            self.df_exploit_datasource_loading = v_df_exploit_datasource
+        v_datasource_loading_list = self.df_exploit_datasource_loading['SRC_OBJECT_NAME'].tolist()
+        if p_verbose:
+            v_log_message = "{} data sources to load : {}".format(len(v_datasource_loading_list),v_datasource_loading_list)
+            p_verbose.log(datetime.now(tz=timezone.utc), "DATASOURCE_LOADING", "STARTING", log_message=v_log_message)
         v_cursor.close()
 
     def __del__(self):
@@ -289,7 +301,7 @@ class BronzeExploit:
     def __next__(self):
         try:
             #items = [self.df_param.iloc[self.idx,i] for i in range(len(self.df_param.columns))]
-            v_line = self.df_exploit_param.iloc[self.idx].tolist()
+            v_line = self.df_exploit_datasource_loading.iloc[self.idx].tolist()
             v_items = SourceProperties(*v_line)
         except IndexError:
             raise StopIteration()
@@ -297,7 +309,7 @@ class BronzeExploit:
         return v_items
 
     def __getitem__(self, p_key):
-        v_df_filtered_data = self.df_exploit_param[self.df_exploit_param['BRONZE_TABLE_NAME'] == p_key]
+        v_df_filtered_data = self.df_exploit_datasource_loading[self.df_exploit_datasource_loading['BRONZE_TABLE_NAME'] == p_key]
         if v_df_filtered_data.empty:
             raise KeyError(f"Key '{p_key}' not found")
         v_line = v_df_filtered_data.iloc[0].tolist()
@@ -305,25 +317,25 @@ class BronzeExploit:
         return v_items
 
     def __setitem__(self, p_key, p_value):
-        v_index = self.data[self.df_exploit_param['BRONZE_TABLE_NAME'] == p_key].index
+        v_index = self.data[self.df_exploit_datasource_loading['BRONZE_TABLE_NAME'] == p_key].index
         if not v_index.empty:
-            self.df_exploit_param.loc[v_index[0], self.df_exploit_param.columns != 'BRONZE_TABLE_NAME'] = p_value
+            self.df_exploit_datasource_loading.loc[v_index[0], self.df_exploit_datasource_loading.columns != 'BRONZE_TABLE_NAME'] = p_value
         else:
-            v_new_row = pd.Series(p_value, index=self.df_exploit_param.columns.drop('BRONZE_TABLE_NAME'))
+            v_new_row = pd.Series(p_value, index=self.df_exploit_datasource_loading.columns.drop('BRONZE_TABLE_NAME'))
             v_new_row['BRONZE_TABLE_NAME'] = p_key
-            self.df_exploit_param = self.data.append(v_new_row, ignore_index=True)
+            self.df_exploit_datasource_loading = self.data.append(v_new_row, ignore_index=True)
 
     def items(self):
-        for index, row in self.df_exploit_param.iterrows():
+        for index, row in self.df_exploit_datasource_loading.iterrows():
             v_line = row.tolist()
             v_items = SourceProperties(*v_line)
             yield row['BRONZE_TABLE_NAME'], v_items
 
     def keys(self):
-        return self.df_exploit_param['BRONZE_TABLE_NAME']
+        return self.df_exploit_datasource_loading['BRONZE_TABLE_NAME']
 
     def values(self):
-        for index, row in self.df_exploit_param.iterrows():
+        for index, row in self.df_exploit_datasource_loading.iterrows():
             v_line = row.tolist()
             v_items = SourceProperties(*v_line)
             yield v_items
@@ -384,7 +396,7 @@ class BronzeExploit:
             return False
 
     def __str__(self):
-        return f"BronzeExploit: exploit_running_loading_table={self.exploit_running_loading_table}, df_param={self.df_exploit_param}"
+        return f"BronzeExploit: exploit_running_loading_table={self.exploit_running_loading_table}, df_param={self.df_exploit_datasource_loading}"
 
 class BronzeDbManager:
     # object to manage connection to bronze database
