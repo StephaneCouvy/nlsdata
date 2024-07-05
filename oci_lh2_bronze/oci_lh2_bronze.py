@@ -247,7 +247,7 @@ class BronzeExploit:
             v_message = "Populate exploit loading table {} with previous error tables from log table {} on interval {}->{}".format(self.exploit_running_loading_table,v_log_table,v_interval_start,v_interval_end)
             if self.verbose:
                 self.verbose.log(datetime.now(tz=timezone.utc), "EXPLOIT", "START", log_message=v_message)
-        v_dmbs_output = self.get_db().execute_proc('LH2_ADMIN_EXPLOIT_PKG.CREATE_LH2_DATASOURCE_LOADING_PROC',*[self.exploit_loading_table,self.batch_loading_table,self.exploit_running_loading_table,v_log_table,v_interval_start,v_interval_end])
+        v_dmbs_output = self.get_db().execute_proc('LH2_EXPLOIT_ADMIN_PKG.CREATE_LH2_DATASOURCE_LOADING_PROC',*[self.exploit_loading_table,self.batch_loading_table,self.exploit_running_loading_table,v_log_table,v_interval_start,v_interval_end])
         self.get_db_connection().commit()
         if not self.get_db().last_execute_proc_completion():
             v_message = "ERROR, Create running exploit loading table  {}".format(self.exploit_running_loading_table)
@@ -288,7 +288,7 @@ class BronzeExploit:
             message = "Deleting temporary Exploit table  {}".format(self.exploit_running_loading_table)
             if self.verbose:
                 self.verbose.log(datetime.now(tz=timezone.utc), "EXPLOIT", "END", log_message=message)
-            self.get_db().execute_proc('LH2_ADMIN_EXPLOIT_PKG.DROP_TABLE_PROC', *[self.exploit_running_loading_table])
+            self.get_db().execute_proc('LH2_EXPLOIT_ADMIN_PKG.DROP_TABLE_PROC', *[self.exploit_running_loading_table])
             message += "{}".format(self.get_db().last_execute_proc_output())
             if self.verbose:
                 self.verbose.log(datetime.now(tz=timezone.utc), "EXPLOIT", "END", log_message=message)
