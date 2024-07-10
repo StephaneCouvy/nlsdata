@@ -623,7 +623,7 @@ class BronzeDbManager:
                         v_table_data = v_row.to_dict()
                         v_table_name = v_table_data['TABLE_NAME']
                         v_num_rows = self.get_db().get_num_rows(v_table_name)
-                        v_num_rows = 0
+                        #v_num_rows = 0
                         v_df_lh2_tables.at[v_index,'NUM_ROWS'] = v_num_rows
                 
                 # Get buckets used for bronze layers
