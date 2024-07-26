@@ -22,6 +22,7 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
         self.auth = aiohttp.BasicAuth(self.user, self.password)
         if self.bronze_source_properties.incremental == 1:
             self.response = requests.get(self.url + self.endpoint, auth=HTTPBasicAuth(self.user, self.password), headers=self.headers, params=self.params)
+            print(self.response.url)
         self.cache = {}
         self.semaphore = asyncio.Semaphore(10)
 
@@ -157,7 +158,7 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
         if all_incidents_df.empty:
             print("No incidents fetched.")
             return
-
+        print(all_incidents_df.to_string())
         return all_incidents_df
 
     def fetch_source(self, verbose=None):
