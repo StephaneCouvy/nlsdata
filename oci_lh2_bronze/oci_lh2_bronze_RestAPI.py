@@ -160,7 +160,7 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
         if all_incidents_df.empty:
             print("No incidents fetched.")
             return
-        print(all_incidents_df.to_string())
+
         return all_incidents_df
 
     def fetch_source(self, verbose=None):
