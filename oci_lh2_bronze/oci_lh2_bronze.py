@@ -262,7 +262,7 @@ class BronzeExploit:
         v_new_fields = [SOURCE_PROPERTIES_SYNONYMS.get(old_name,old_name) for old_name in v_loadingTableProperties._fields]
         v_new_fields.append('request')
         v_defaults_values = [None] * len(v_new_fields)
-        SourceProperties = namedtuple ('SourceProperties',v_new_fields,defaults=v_defaults_values)
+        SourceProperties = namedtuple('SourceProperties',v_new_fields,defaults=v_defaults_values)
         
         # Execute a SQL query to fetch activ data from the table "LIST_DATASOURCE_LOADING_..." into a dataframe
         v_sql = "select * from " + self.exploit_running_loading_table + " where SRC_FLAG_ACTIV = 1 ORDER BY SRC_TYPE,SRC_NAME,SRC_OBJECT_NAME"

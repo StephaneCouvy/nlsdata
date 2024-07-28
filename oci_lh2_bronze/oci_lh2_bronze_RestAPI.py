@@ -24,20 +24,20 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
         #    self.params[
         #        "sysparm_query"] = f"{self.bronze_source_properties.date_criteria}>{self.bronze_source_properties.last_update}"
         self.response = requests.get(self.url + self.endpoint, auth=HTTPBasicAuth(self.user, self.password), headers=self.headers, params=self.params)
-        print(self.response.url)
-        self.cache = {}
-        self.semaphore = asyncio.Semaphore(10)
+
+        """self.cache = {}
+        self.semaphore = asyncio.Semaphore(10)"""
 
         if self.response.status_code != 200:
             vError = "ERROR connecting to : {}".format(self.get_bronze_source_properties().name)
             raise Exception(vError)
 
-    def get_bronze_row_lastupdate_date(self):
+    """def get_bronze_row_lastupdate_date(self):
         if not self.bronze_date_lastupdated_row:
             v_dict_join = self.get_externaltablepartition_properties()._asdict()
             v_join= " AND ".join([f"{INVERTED_EXTERNAL_TABLE_PARTITION_SYNONYMS.get(key,key)} = '{value}'" for key, value in v_dict_join.items()])
             self.bronze_date_lastupdated_row = self.get_bronzedb_manager().get_bronze_lastupdated_row(self.bronze_table, self.bronze_source_properties.date_criteria,v_join)
-        return self.bronze_date_lastupdated_row
+        return self.bronze_date_lastupdated_row"""
 
     def __set_bronze_bucket_proxy__(self):
         self.bronze_bucket_proxy.set_bucket_by_extension(p_bucket_extension=self.get_bronze_source_properties().name)
@@ -54,7 +54,7 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
             [f"{key}" for key in v_dict_externaltablepartition.values()]) + "/"
         self.parquet_file_id = self.__get_last_parquet_idx_in_bucket__()
 
-    async def fetch_name_from_link(self, session, link, retries=3):
+    """async def fetch_name_from_link(self, session, link, retries=3):
         if link in self.cache:
             return self.cache[link]
 
@@ -162,7 +162,7 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
             return
 
         return all_incidents_df
-
+"""
     def fetch_source(self, verbose=None):
         try:
             if self.response.status_code != 200:
@@ -179,8 +179,8 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
                 data = self.response.json()
 
                 match self.get_bronze_source_properties().name:
-                    case "SERVICE_NOW":
-                        data = asyncio.run(self.main())
+                    # case "SERVICE_NOW":
+                    #  data = asyncio.run(self.main())
                     case "CPQ":
                         data = data['items']
 
