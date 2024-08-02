@@ -5,7 +5,10 @@ from nlsdata.oci_lh2_bronze.oci_lh2_bronze import *
 import aiohttp
 import asyncio
 import time
+from datetime import datetime
 
+change_date_format = ['sys_updated_on', 'sys_created_on', 'closed_at', 'opened_at', 'business_duration', 'calendar_duration', 'requested_by_date', 'approval_set', 'end_date', 'work_start', 'start_date', 'work_end', 'conflict_last_run', 'resolved_at', 'u_duration_calc', 'reopened_time']
+rename_columns = ['number', 'order']
 
 class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
     def __init__(self, pSourceProperties: SourceProperties, pBronze_config: BronzeConfig,
@@ -20,24 +23,23 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
         self.endpoint = self.bronze_source_properties.table
         self.params = self.source_database_param.params
         self.auth = aiohttp.BasicAuth(self.user, self.password)
-        #if self.bronze_source_properties.incremental == 1:
-        #    self.params[
-        #        "sysparm_query"] = f"{self.bronze_source_properties.date_criteria}>{self.bronze_source_properties.last_update}"
+        if self.bronze_source_properties.incremental:
+            self.params["sysparm_query"] = f"{self.bronze_source_properties.date_criteria}>{self.bronze_source_properties.last_update}"
         self.response = requests.get(self.url + self.endpoint, auth=HTTPBasicAuth(self.user, self.password), headers=self.headers, params=self.params)
 
-        """self.cache = {}
-        self.semaphore = asyncio.Semaphore(10)"""
+        self.cache = {}
+        self.semaphore = asyncio.Semaphore(10)
 
         if self.response.status_code != 200:
             vError = "ERROR connecting to : {}".format(self.get_bronze_source_properties().name)
             raise Exception(vError)
 
-    """def get_bronze_row_lastupdate_date(self):
+    def get_bronze_row_lastupdate_date(self):
         if not self.bronze_date_lastupdated_row:
             v_dict_join = self.get_externaltablepartition_properties()._asdict()
             v_join= " AND ".join([f"{INVERTED_EXTERNAL_TABLE_PARTITION_SYNONYMS.get(key,key)} = '{value}'" for key, value in v_dict_join.items()])
             self.bronze_date_lastupdated_row = self.get_bronzedb_manager().get_bronze_lastupdated_row(self.bronze_table, self.bronze_source_properties.date_criteria,v_join)
-        return self.bronze_date_lastupdated_row"""
+        return self.bronze_date_lastupdated_row
 
     def __set_bronze_bucket_proxy__(self):
         self.bronze_bucket_proxy.set_bucket_by_extension(p_bucket_extension=self.get_bronze_source_properties().name)
@@ -54,7 +56,7 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
             [f"{key}" for key in v_dict_externaltablepartition.values()]) + "/"
         self.parquet_file_id = self.__get_last_parquet_idx_in_bucket__()
 
-    """async def fetch_name_from_link(self, session, link, retries=3):
+    async def fetch_name_from_link(self, session, link, retries=3):
         if link in self.cache:
             return self.cache[link]
 
@@ -159,10 +161,19 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
 
         if all_incidents_df.empty:
             print("No incidents fetched.")
-            return
+
+        #df = all_incidents_df.iloc[:, :90]
+        for col in all_incidents_df.columns:
+            if col in change_date_format:
+                all_incidents_df[col] = all_incidents_df[col].str.replace('-', '/', regex=False)
+                all_incidents_df[col] = pd.to_datetime(all_incidents_df[col], format='%Y/%m/%d %H:%M:%S')
+
+        for col in all_incidents_df.columns:
+            if col in rename_columns:
+                all_incidents_df.rename(columns={col: f"{col}_id"}, inplace=True)
 
         return all_incidents_df
-"""
+
     def fetch_source(self, verbose=None):
         try:
             if self.response.status_code != 200:
@@ -179,8 +190,8 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
                 data = self.response.json()
 
                 match self.get_bronze_source_properties().name:
-                    # case "SERVICE_NOW":
-                    #  data = asyncio.run(self.main())
+                    case "SERVICE_NOW":
+                        data = asyncio.run(self.main())
                     case "CPQ":
                         data = data['items']
 
