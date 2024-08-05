@@ -1,4 +1,3 @@
-import pandas as pd
 import requests
 from requests.auth import HTTPBasicAuth
 from nlsdata.oci_lh2_bronze.oci_lh2_bronze import *
@@ -7,15 +6,23 @@ import asyncio
 import time
 from datetime import datetime
 
-change_date_format = ['sys_updated_on', 'sys_created_on', 'closed_at', 'opened_at', 'business_duration', 'calendar_duration', 'requested_by_date', 'approval_set', 'end_date', 'work_start', 'start_date', 'work_end', 'conflict_last_run', 'resolved_at', 'u_duration_calc', 'reopened_time']
-rename_columns = ['number', 'order']
+CHANGE_DATE_FORMAT = ['sys_updated_on', 'inc_sys_updated_on', 'md_sys_updated_on', 'mi_sys_updated_on',
+                      'sys_created_on', 'closed_at', 'opened_at', 'business_duration',
+                      'calendar_duration', 'requested_by_date', 'approval_set', 'end_date', 'work_start', 'start_date',
+                      'work_end', 'conflict_last_run', 'resolved_at', 'u_duration_calc', 'reopened_time',
+                      'inc_u_duration_calc', 'mi_sys_created_on', 'inc_sys_created_on', 'inc_business_duration',
+                      'inc_calendar_duration', 'md_sys_created_on', 'inc_opened_at', 'inc_resolved_at', 'inc_closed_at']
+RENAME_COLUMNS = ['number', 'order']
+SEMAPHORE = asyncio.Semaphore(10)  # Nombre de requetes executees simultanement
+
 
 class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
     def __init__(self, pSourceProperties: SourceProperties, pBronze_config: BronzeConfig,
                  pBronzeDb_Manager: BronzeDbManager, pLogger: BronzeLogger):
         vSourceProperties = pSourceProperties._replace(type="REST_API")
         super().__init__(vSourceProperties, pBronze_config, pBronzeDb_Manager, pLogger)
-        self.source_database_param = get_parser_config_settings("rest_api")(self.bronze_config.get_configuration_file(), self.get_bronze_source_properties().name)
+        self.source_database_param = get_parser_config_settings("rest_api")(self.bronze_config.get_configuration_file(),
+                                                                            self.get_bronze_source_properties().name)
         self.url = self.source_database_param.url
         self.user = self.source_database_param.user
         self.password = self.source_database_param.password
@@ -23,22 +30,26 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
         self.endpoint = self.bronze_source_properties.table
         self.params = self.source_database_param.params
         self.auth = aiohttp.BasicAuth(self.user, self.password)
-        if self.bronze_source_properties.incremental:
-            self.params["sysparm_query"] = f"{self.bronze_source_properties.date_criteria}>{self.bronze_source_properties.last_update}"
-        self.response = requests.get(self.url + self.endpoint, auth=HTTPBasicAuth(self.user, self.password), headers=self.headers, params=self.params)
-
         self.cache = {}
-        self.semaphore = asyncio.Semaphore(10)
+        self.semaphore = SEMAPHORE
+        if self.bronze_source_properties.incremental:
+            self.params[
+                "sysparm_query"] = f"{self.bronze_source_properties.date_criteria}>{self.bronze_source_properties.last_update}"
+        self.response = requests.get(self.url + self.endpoint, auth=HTTPBasicAuth(self.user, self.password),
 
         if self.response.status_code != 200:
             vError = "ERROR connecting to : {}".format(self.get_bronze_source_properties().name)
-            raise Exception(vError)
+        raise Exception(vError)
 
     def get_bronze_row_lastupdate_date(self):
         if not self.bronze_date_lastupdated_row:
             v_dict_join = self.get_externaltablepartition_properties()._asdict()
-            v_join= " AND ".join([f"{INVERTED_EXTERNAL_TABLE_PARTITION_SYNONYMS.get(key,key)} = '{value}'" for key, value in v_dict_join.items()])
-            self.bronze_date_lastupdated_row = self.get_bronzedb_manager().get_bronze_lastupdated_row(self.bronze_table, self.bronze_source_properties.date_criteria,v_join)
+            v_join = " AND ".join(
+                [f"{INVERTED_EXTERNAL_TABLE_PARTITION_SYNONYMS.get(key, key)} = '{value}'" for key, value in
+                 v_dict_join.items()])
+            self.bronze_date_lastupdated_row = self.get_bronzedb_manager().get_bronze_lastupdated_row(self.bronze_table,
+                                                                                                      self.bronze_source_properties.date_criteria,
+                                                                                                      v_join)
         return self.bronze_date_lastupdated_row
 
     def __set_bronze_bucket_proxy__(self):
@@ -47,7 +58,8 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
     def __set_bronze_table_settings__(self):
         v_bronze_table_name = self.get_bronze_source_properties().bronze_table_name
         if not v_bronze_table_name:
-            v_bronze_table_name = self.bronze_table = self.get_bronze_source_properties().name + "_" + self.get_bronze_source_properties().schema + "_" + self.get_bronze_source_properties().table.replace(" ", "_")
+            v_bronze_table_name = self.bronze_table = self.get_bronze_source_properties().name + "_" + self.get_bronze_source_properties().schema + "_" + self.get_bronze_source_properties().table.replace(
+                " ", "_")
         self.bronze_table = v_bronze_table_name.upper()
         self.parquet_file_name_template = self.bronze_table
         self.parquet_file_id = 0
@@ -110,7 +122,9 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
 
         for col in dict_columns:
             df[col] = await asyncio.gather(
-                *[self.fetch_name_from_link(session, value['link']) if isinstance(value, dict) and 'link' in value else asyncio.sleep(0, result=value) for value in df[col]]
+                *[self.fetch_name_from_link(session, value['link']) if isinstance(value,
+                                                                                  dict) and 'link' in value else asyncio.sleep(
+                    0, result=value) for value in df[col]]
             )
 
         return df
@@ -160,17 +174,17 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
         all_incidents_df = await self.fetch_all_incidents()
 
         if all_incidents_df.empty:
+            all_incidents_df = None
             print("No incidents fetched.")
+        else:
+            for col in all_incidents_df.columns:
+                if col in CHANGE_DATE_FORMAT:
+                    all_incidents_df[col] = all_incidents_df[col].str.replace('-', '/', regex=False)
+                    all_incidents_df[col] = pd.to_datetime(all_incidents_df[col], format='%Y/%m/%d %H:%M:%S')
 
-        #df = all_incidents_df.iloc[:, :90]
-        for col in all_incidents_df.columns:
-            if col in change_date_format:
-                all_incidents_df[col] = all_incidents_df[col].str.replace('-', '/', regex=False)
-                all_incidents_df[col] = pd.to_datetime(all_incidents_df[col], format='%Y/%m/%d %H:%M:%S')
-
-        for col in all_incidents_df.columns:
-            if col in rename_columns:
-                all_incidents_df.rename(columns={col: f"{col}_id"}, inplace=True)
+            for col in all_incidents_df.columns:
+                if col in RENAME_COLUMNS:
+                    all_incidents_df.rename(columns={col: f"{col}_id"}, inplace=True)
 
         return all_incidents_df
 
@@ -194,7 +208,7 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
                         data = asyncio.run(self.main())
                     case "CPQ":
                         data = data['items']
-
+                print(data)
                 self.df_table_content = pd.DataFrame(data)
                 res = self.__create_parquet_file__(verbose)
                 if not res:
