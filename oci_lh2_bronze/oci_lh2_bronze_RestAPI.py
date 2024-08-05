@@ -13,7 +13,6 @@ CHANGE_DATE_FORMAT = ['sys_updated_on', 'inc_sys_updated_on', 'md_sys_updated_on
                       'inc_u_duration_calc', 'mi_sys_created_on', 'inc_sys_created_on', 'inc_business_duration',
                       'inc_calendar_duration', 'md_sys_created_on', 'inc_opened_at', 'inc_resolved_at', 'inc_closed_at']
 RENAME_COLUMNS = ['number', 'order']
-SEMAPHORE = asyncio.Semaphore(10)  # Nombre de requetes executees simultanement
 
 
 class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
@@ -31,11 +30,10 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
         self.params = self.source_database_param.params
         self.auth = aiohttp.BasicAuth(self.user, self.password)
         self.cache = {}
-        self.semaphore = SEMAPHORE
+        self.semaphore = asyncio.Semaphore(10)
         if self.bronze_source_properties.incremental:
-            self.params[
-                "sysparm_query"] = f"{self.bronze_source_properties.date_criteria}>{self.bronze_source_properties.last_update}"
-        self.response = requests.get(self.url + self.endpoint, auth=HTTPBasicAuth(self.user, self.password))
+            self.params["sysparm_query"] = f"{self.bronze_source_properties.date_criteria}>{self.bronze_source_properties.last_update}"
+        self.response = requests.get(self.url + self.endpoint, auth=HTTPBasicAuth(self.user, self.password), params=self.params)
 
         if self.response.status_code != 200:
             vError = "ERROR connecting to : {}".format(self.get_bronze_source_properties().name)
