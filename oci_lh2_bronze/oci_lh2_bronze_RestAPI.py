@@ -71,48 +71,47 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
             return self.cache[link]
 
         attempt = 0
-        final_segment = link.rsplit('/', 1)[-1]
-
         while attempt < retries:
             async with self.semaphore:
                 try:
                     async with session.get(link, auth=self.auth) as response:
-                        response.raise_for_status()  # Assure que les erreurs HTTP sont levées
-
                         content_type = response.headers.get('Content-Type', '')
                         if 'application/json' not in content_type:
                             content = await response.text()
                             print(f"Unexpected content type for {link}. Response content: {content}")
+                            final_segment = link.rsplit('/', 1)[-1]
                             self.cache[link] = final_segment
                             return final_segment
 
                         response_data = await response.json()
-                        result = response_data.get('result', {})
-                        name = result.get('name')
-                        number = result.get('number')
-
-                        if name:
-                            self.cache[link] = name
-                            return name
-                        elif number:
+                        if response_data.get('result', {}).get('name'):
+                            name = response_data.get('result', {}).get('name')
+                            if name is not None:
+                                self.cache[link] = name
+                                return name
+                        elif response_data.get('result', {}).get('number'):
+                            number = response_data.get('result', {}).get('number')
                             self.cache[link] = number
                             return number
-                        elif final_segment == 'global':
-                            self.cache[link] = final_segment
-                            return final_segment
                         else:
-                            self.cache[link] = None
-                            return None
-
+                            final_segment = link.rsplit('/', 1)[-1]
+                            if final_segment == 'global':
+                                self.cache[link] = final_segment
+                                return final_segment
+                            else:
+                                self.cache[link] = None
+                                return None
                 except aiohttp.ClientError as e:
                     print(f"HTTP error occurred: {e} for URL: {link}")
                     attempt += 1
                     if attempt < retries:
                         await asyncio.sleep(2 ** attempt)
                     else:
+                        final_segment = link.rsplit('/', 1)[-1]
                         self.cache[link] = final_segment
                         return final_segment
 
+        final_segment = link.rsplit('/', 1)[-1]
         self.cache[link] = final_segment
         return final_segment
 
