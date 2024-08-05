@@ -35,7 +35,7 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
         if self.bronze_source_properties.incremental:
             self.params[
                 "sysparm_query"] = f"{self.bronze_source_properties.date_criteria}>{self.bronze_source_properties.last_update}"
-        self.response = requests.get(self.url + self.endpoint, auth=HTTPBasicAuth(self.user, self.password),
+        self.response = requests.get(self.url + self.endpoint, auth=HTTPBasicAuth(self.user, self.password))
 
         if self.response.status_code != 200:
             vError = "ERROR connecting to : {}".format(self.get_bronze_source_properties().name)
