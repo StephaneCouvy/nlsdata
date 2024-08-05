@@ -71,47 +71,48 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
             return self.cache[link]
 
         attempt = 0
+        final_segment = link.rsplit('/', 1)[-1]
+
         while attempt < retries:
             async with self.semaphore:
                 try:
                     async with session.get(link, auth=self.auth) as response:
+                        response.raise_for_status()  # Assure que les erreurs HTTP sont levées
+
                         content_type = response.headers.get('Content-Type', '')
                         if 'application/json' not in content_type:
                             content = await response.text()
                             print(f"Unexpected content type for {link}. Response content: {content}")
-                            final_segment = link.rsplit('/', 1)[-1]
                             self.cache[link] = final_segment
                             return final_segment
 
                         response_data = await response.json()
-                        if response_data.get('result', {}).get('name'):
-                            name = response_data.get('result', {}).get('name')
-                            if name is not None:
-                                self.cache[link] = name
-                                return name
-                        elif response_data.get('result', {}).get('number'):
-                            number = response_data.get('result', {}).get('number')
+                        result = response_data.get('result', {})
+                        name = result.get('name')
+                        number = result.get('number')
+
+                        if name:
+                            self.cache[link] = name
+                            return name
+                        elif number:
                             self.cache[link] = number
                             return number
+                        elif final_segment == 'global':
+                            self.cache[link] = final_segment
+                            return final_segment
                         else:
-                            final_segment = link.rsplit('/', 1)[-1]
-                            if final_segment == 'global':
-                                self.cache[link] = final_segment
-                                return final_segment
-                            else:
-                                self.cache[link] = None
-                                return None
+                            self.cache[link] = None
+                            return None
+
                 except aiohttp.ClientError as e:
                     print(f"HTTP error occurred: {e} for URL: {link}")
                     attempt += 1
                     if attempt < retries:
                         await asyncio.sleep(2 ** attempt)
                     else:
-                        final_segment = link.rsplit('/', 1)[-1]
                         self.cache[link] = final_segment
                         return final_segment
 
-        final_segment = link.rsplit('/', 1)[-1]
         self.cache[link] = final_segment
         return final_segment
 
@@ -168,21 +169,24 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
 
         return all_incidents_df
 
-    async def main(self):
+    def transform_columns(self, df):
+        for col in df.columns:
+            if col in CHANGE_DATE_FORMAT:
+                df[col] = df[col].str.replace('-', '/', regex=False)
+                df[col] = pd.to_datetime(df[col], format='%Y/%m/%d %H:%M:%S')
+
+        for col in df.columns:
+            if col in RENAME_COLUMNS:
+                df.rename(columns={col: f"{col}_id"}, inplace=True)
+
+    async def fetch_all_data(self):
         all_incidents_df = await self.fetch_all_incidents()
 
         if all_incidents_df.empty:
             all_incidents_df = None
             print("No incidents fetched.")
         else:
-            for col in all_incidents_df.columns:
-                if col in CHANGE_DATE_FORMAT:
-                    all_incidents_df[col] = all_incidents_df[col].str.replace('-', '/', regex=False)
-                    all_incidents_df[col] = pd.to_datetime(all_incidents_df[col], format='%Y/%m/%d %H:%M:%S')
-
-            for col in all_incidents_df.columns:
-                if col in RENAME_COLUMNS:
-                    all_incidents_df.rename(columns={col: f"{col}_id"}, inplace=True)
+            self.transform_columns(all_incidents_df)
 
         return all_incidents_df
 
@@ -203,10 +207,10 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
 
                 match self.get_bronze_source_properties().name:
                     case "SERVICE_NOW":
-                        data = asyncio.run(self.main())
+                        data = asyncio.run(self.fetch_all_data())
                     case "CPQ":
                         data = data['items']
-                print(data)
+
                 self.df_table_content = pd.DataFrame(data)
                 res = self.__create_parquet_file__(verbose)
                 if not res:
