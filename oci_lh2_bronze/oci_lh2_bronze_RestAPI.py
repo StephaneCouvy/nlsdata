@@ -39,7 +39,7 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
 
         if self.response.status_code != 200:
             vError = "ERROR connecting to : {}".format(self.get_bronze_source_properties().name)
-        raise Exception(vError)
+            raise Exception(vError)
 
     def get_bronze_row_lastupdate_date(self):
         if not self.bronze_date_lastupdated_row:
