@@ -175,11 +175,12 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
                 # Remplacer les tirets par des barres obliques
                 df[col] = df[col].str.replace('-', '/', regex=False)
 
-                # Convertir les chaînes de caractères en objets datetime
-                df[col] = pd.to_datetime(df[col], format='%Y/%m/%d %H:%M:%S,%f')
+                # Convertir les chaînes de caractères en objets datetime avec le bon format
+                df[col] = pd.to_datetime(df[col], format='%Y/%m/%d %H:%M:%S')
 
-                # Assigner le fuseau horaire d'origine (UTC, par exemple)
-                df[col] = df[col].dt.tz_localize('US/Central')  # Remplacez 'UTC' par le fuseau d'origine si nécessaire
+                # Assigner le fuseau horaire d'origine (par exemple, US Central Time CST)
+                df[col] = df[col].dt.tz_localize(
+                    'US/Central')  # Remplacez 'US/Central' par le fuseau d'origine si nécessaire
 
                 # Convertir en heure française (Europe/Paris)
                 df[col] = df[col].dt.tz_convert('Europe/Paris')
