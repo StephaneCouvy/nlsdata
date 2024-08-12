@@ -172,6 +172,8 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
     def transform_columns(self, df):
         for col in df.columns:
             if col in CHANGE_DATE_FORMAT:
+
+                df[col] = df[col].str.replace('-', '/', regex=False)
                 # Convertir les chaînes de caractères en objets datetime
                 df[col] = pd.to_datetime(df[col], format='%Y/%m/%d %H:%M:%S')
 
