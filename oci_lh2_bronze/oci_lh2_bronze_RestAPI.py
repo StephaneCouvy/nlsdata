@@ -1,4 +1,5 @@
 import requests
+import pytz
 from requests.auth import HTTPBasicAuth
 from nlsdata.oci_lh2_bronze.oci_lh2_bronze import *
 import aiohttp
@@ -172,7 +173,13 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
         for col in df.columns:
             if col in CHANGE_DATE_FORMAT:
                 df[col] = df[col].str.replace('-', '/', regex=False)
-                df[col] = pd.to_datetime(df[col], format='%Y/%m/%d %H:%M:%S')
+                date_obj = datetime.strptime(df[col], "%d/%m/%y %H:%M:%S,%f")
+                utc_tz = pytz.timezone('UTC')
+                date_utc = utc_tz.localize(date_obj)
+                paris_tz = pytz.timezone('Europe/Paris')
+                date_paris = date_utc.astimezone(paris_tz)
+                formatted_date_paris = date_paris.strftime("%d/%m/%y %H:%M:%S,%f")
+                df[col] = pd.to_datetime(formatted_date_paris, format='%Y/%m/%d %H:%M:%S')
 
         for col in df.columns:
             if col in RENAME_COLUMNS:
