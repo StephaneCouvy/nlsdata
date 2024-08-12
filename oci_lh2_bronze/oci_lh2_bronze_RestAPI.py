@@ -172,14 +172,17 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
     def transform_columns(self, df):
         for col in df.columns:
             if col in CHANGE_DATE_FORMAT:
+                # Remplacer les tirets par des barres obliques
                 df[col] = df[col].str.replace('-', '/', regex=False)
-                date_obj = datetime.strptime(df[col], "%d/%m/%y %H:%M:%S,%f")
-                utc_tz = pytz.timezone('UTC')
-                date_utc = utc_tz.localize(date_obj)
-                paris_tz = pytz.timezone('Europe/Paris')
-                date_paris = date_utc.astimezone(paris_tz)
-                formatted_date_paris = date_paris.strftime("%d/%m/%y %H:%M:%S,%f")
-                df[col] = pd.to_datetime(formatted_date_paris, format='%Y/%m/%d %H:%M:%S')
+
+                # Convertir les chaînes de caractères en objets datetime
+                df[col] = pd.to_datetime(df[col], format='%d/%m/%y %H:%M:%S,%f')
+
+                # Assigner le fuseau horaire d'origine (UTC, par exemple)
+                df[col] = df[col].dt.tz_localize('UTC')  # Remplacez 'UTC' par le fuseau d'origine si nécessaire
+
+                # Convertir en heure française (Europe/Paris)
+                df[col] = df[col].dt.tz_convert('Europe/Paris')
 
         for col in df.columns:
             if col in RENAME_COLUMNS:
