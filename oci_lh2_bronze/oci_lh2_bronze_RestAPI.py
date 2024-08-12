@@ -179,7 +179,7 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
                 df[col] = pd.to_datetime(df[col], format='%Y/%m/%d %H:%M:%S')
 
                 # Assigner le fuseau horaire UTC à la colonne
-                df[col] = df[col].dt.tz_localize('Etc/GMT-3')
+                df[col] = df[col].dt.tz_localize('Etc/GMT-2')
 
                 # Convertir de UTC à l'heure de Paris
                 df[col] = df[col].dt.tz_convert('Europe/Paris')
