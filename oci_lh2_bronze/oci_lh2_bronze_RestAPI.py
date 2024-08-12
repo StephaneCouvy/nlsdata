@@ -178,15 +178,6 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
                 # Convertir les chaînes de caractères en objets datetime avec le bon format
                 df[col] = pd.to_datetime(df[col], format='%Y/%m/%d %H:%M:%S')
 
-                # Utiliser pytz pour créer un fuseau horaire UTC-1
-                utc_minus_1 = pytz.FixedOffset(-60)  # -60 minutes pour UTC-1
-
-                # Assigner ce fuseau horaire
-                df[col] = df[col].dt.tz_localize(utc_minus_1)
-
-                # Convertir de UTC-1 à l'heure de Paris
-                df[col] = df[col].dt.tz_convert('Europe/Paris')
-
 
         for col in df.columns:
             if col in RENAME_COLUMNS:
