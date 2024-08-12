@@ -172,18 +172,16 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
     def transform_columns(self, df):
         for col in df.columns:
             if col in CHANGE_DATE_FORMAT:
-
+                # Remplacer les tirets par des barres obliques dans les dates
                 df[col] = df[col].str.replace('-', '/', regex=False)
+
                 # Convertir les chaînes de caractères en objets datetime
                 df[col] = pd.to_datetime(df[col], format='%Y/%m/%d %H:%M:%S')
 
-                # Localiser l'heure dans UTC-1 (sans gestion des changements d'heure)
-                df[col] = df[col].dt.tz_localize('Etc/GMT-1')
+                # Localiser l'heure en UTC-1
+                df[col] = df[col].dt.tz_localize('Etc/GMT+1')
 
-                # Convertir de UTC-1 à l'heure US Central (CST/CDT)
-                df[col] = df[col].dt.tz_convert('US/Central')
-
-                # Convertir de US Central à l'heure de Paris (CET/CEST)
+                # Convertir de UTC-1 à l'heure de Paris (CET/CEST)
                 df[col] = df[col].dt.tz_convert('Europe/Paris')
 
 
