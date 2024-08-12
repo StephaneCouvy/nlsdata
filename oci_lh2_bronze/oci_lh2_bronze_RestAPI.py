@@ -176,7 +176,7 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
                 df[col] = df[col].str.replace('-', '/', regex=False)
 
                 # Convertir les chaînes de caractères en objets datetime
-                df[col] = pd.to_datetime(df[col], format='%y/%m/%d %H:%M:%S,%f')
+                df[col] = pd.to_datetime(df[col], format='%Y/%m/%d %H:%M:%S,%f')
 
                 # Assigner le fuseau horaire d'origine (UTC, par exemple)
                 df[col] = df[col].dt.tz_localize('CST')  # Remplacez 'UTC' par le fuseau d'origine si nécessaire
