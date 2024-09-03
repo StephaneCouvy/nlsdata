@@ -1239,13 +1239,16 @@ class BronzeSourceBuilder:
         # list columns of primary key based on source table indexes : search for unique index
         #  unique index name ends with _U{digit} or _PK
         return None
-       
+    
+    def isexternalpartionedtable(self):
+        return self.bronze_source_properties.incremental
+    
     def __set_local_workgingdir__(self, path):
         # Create a temporary directory if it doesn't exist
         if not os.path.exists(path):
             os.makedirs(path)
         self.local_workingdir = path
-
+    
     def __update_fetch_row_stats__(self):
         self.total_imported_rows += len(self.df_table_content)
         self.total_imported_rows_size += int(self.df_table_content.memory_usage(deep=True).sum())
@@ -1412,7 +1415,7 @@ class BronzeSourceBuilder:
                 raise Exception("ERROR dropping table {}".format(vTable))
             
             # Create external part table parsing parquet files from bucket root (for incremental mode)
-            if self.bronze_source_properties.incremental:
+            if self.isexternalpartionedtable():
                 # Create external part table parsing parquet files from bucket root (for incremental mode)
                 root_path = self.bucket_file_path.split("/")[0]+"/"
                 create = 'BEGIN DBMS_CLOUD.CREATE_EXTERNAL_PART_TABLE(table_name =>\'' + vTable + '\',credential_name =>\'' + self.bronze_bucket_proxy.get_oci_adw_credential() + '\', file_uri_list =>\'' + self.bronze_bucket_proxy.get_oci_objectstorage_url() + self.bronze_bucket_proxy.get_bucket_name() + '/o/'+root_path+'*' + self.parquet_file_name_template + '*.parquet\', format => \'{"type":"parquet", "schema": "first","partition_columns":[{"name":"fetch_year","type":"varchar2(100)"},{"name":"fetch_month","type":"varchar2(100)"},{"name":"fetch_day","type":"varchar2(100)"}]}\'); END;'
@@ -1462,7 +1465,7 @@ class BronzeSourceBuilder:
             self.set_bronze_status('parquet_sent')
             return True
         self.parquet_file_list_tosend = []
-        if not self.bronze_source_properties.incremental:
+        if not self.isexternalpartionedtable():
             # if not incremental mode, merging parquet files into one, before sending
             merged_parquet_file_name = self.parquet_file_name_template+PARQUET_FILE_EXTENSION
             merged_parquet_file = os.path.join(self.local_workingdir, merged_parquet_file_name)
@@ -1513,7 +1516,7 @@ class BronzeSourceBuilder:
 
     def update_bronze_schema(self,verbose):
         try:
-            message = "Update Bronze schema {} : Incremental {}".format(self.bronze_table, bool(self.bronze_source_properties.incremental))
+            message = "Update Bronze schema {} : External Partioned Table {}".format(self.bronze_table, bool(self.isexternalpartionedtable()))
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "UPADATE_BRONZE", "START", log_message=message)
             if not self.parquet_file_list:
@@ -1521,7 +1524,7 @@ class BronzeSourceBuilder:
                 if verbose:
                     verbose.log(datetime.now(tz=timezone.utc), "UPADATE_BRONZE", "END", log_message=message)
                 res = True
-            elif self.bronze_source_properties.incremental and self.get_bronzedb_manager().is_table_exists(self.bronze_table):
+            elif self.isexternalpartionedtable() and self.get_bronzedb_manager().is_table_exists(self.bronze_table):
                 # if incremental mode, if table exists, update (synchronize) external part table
                 res = self.__sync_bronze_table__(verbose)
             else:
