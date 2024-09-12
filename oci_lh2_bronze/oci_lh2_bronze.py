@@ -364,8 +364,11 @@ class BronzeExploit:
             v_offset = 1
             v_set = "SET "+", ".join([f"{INVERTED_SOURCE_PROPERTIES_SYNONYMS.get(column,column)} =:{i+v_offset}" for i, column in enumerate(p_dict_column_name_value.keys())])
             v_offset = len(p_dict_column_name_value)+1
+            # if source is specified (database name, schema, table) then update row based on this columns
             if p_source:
                 v_dict_join = {INVERTED_SOURCE_PROPERTIES_SYNONYMS.get('name'):p_source.name,INVERTED_SOURCE_PROPERTIES_SYNONYMS.get('schema'):p_source.schema,INVERTED_SOURCE_PROPERTIES_SYNONYMS.get('table'):p_source.table}    
+            # if bronze table is specified, then update row for this bronze table
+            # for example, needed when drop a bronze table to update exploit
             if p_bronze_table_name:
                 v_dict_join = {INVERTED_SOURCE_PROPERTIES_SYNONYMS.get('bronze_table_name'):p_bronze_table_name}
             
@@ -912,7 +915,7 @@ class BronzeDbManager:
             for v_index,v_row in self.df_bronze_tables_stats[v_mask].iterrows():
                 # Drop table into database
                 if not p_simulate:
-                    v_result_run_proc = self.run_proc('LH2_BRONZE_ADMIN_PKG.DROP_TABLE_PROC',*[p_table_name],p_verbose=p_verbose,p_proc_exe_context=p_table_name)
+                    v_result_run_proc = self.run_proc('LH2_BRONZE_ADMIN_PKG.DROP_TABLE_PROC',*[p_table_name,self.bronzeDb_Manager_config.get_options().bronze_bis_suffixe],p_verbose=p_verbose,p_proc_exe_context=p_table_name)
                 else:
                     v_result_run_proc = True
                 if not v_result_run_proc:
@@ -1239,13 +1242,16 @@ class BronzeSourceBuilder:
         # list columns of primary key based on source table indexes : search for unique index
         #  unique index name ends with _U{digit} or _PK
         return None
-       
+    
+    def isexternalpartionedtable(self):
+        return self.bronze_source_properties.incremental
+    
     def __set_local_workgingdir__(self, path):
         # Create a temporary directory if it doesn't exist
         if not os.path.exists(path):
             os.makedirs(path)
         self.local_workingdir = path
-
+    
     def __update_fetch_row_stats__(self):
         self.total_imported_rows += len(self.df_table_content)
         self.total_imported_rows_size += int(self.df_table_content.memory_usage(deep=True).sum())
@@ -1269,6 +1275,13 @@ class BronzeSourceBuilder:
         # Adding column into every parquet file with System date to log integration datetime
         v_integration_time = datetime.now(tz=timezone.utc)
         self.df_table_content["fetch_date"] = v_integration_time
+        # adding column FETCH_YEAR, FETCH_MONTH, FETCH_DAY for not external partioned table
+        # for this table, the columns are created automatically : columns = subfoler of bucket storage of parquet files
+        if not self.isexternalpartionedtable():
+            v_dict_join = self.get_externaltablepartition_properties()._asdict()
+            for v_key,v_value in v_dict_join.items():
+                self.df_table_content[INVERTED_EXTERNAL_TABLE_PARTITION_SYNONYMS.get(v_key,v_key)] = v_value
+       
 
     def __get_last_parquet_idx_in_bucket__(self):
         # check if other parquet files already exist into the same bucket folder
@@ -1407,12 +1420,12 @@ class BronzeSourceBuilder:
                 message = "Dropping table {}.{} ".format(self.get_bronzedb_manager().get_db_username(),vTable)
                 verbose.log(datetime.now(tz=timezone.utc), "DROP_TABLE", "START", log_message=message)
             #cursor.execute(drop)
-            vResult_run_proc = self.get_bronzedb_manager().run_proc('LH2_BRONZE_ADMIN_PKG.DROP_TABLE_PROC',*[vTable],p_verbose=verbose,p_proc_exe_context=vTable)
+            vResult_run_proc = self.get_bronzedb_manager().run_proc('LH2_BRONZE_ADMIN_PKG.DROP_TABLE_PROC',*[vTable,self.bronze_config.get_options().bronze_bis_suffixe],p_verbose=verbose,p_proc_exe_context=vTable)
             if not vResult_run_proc:
                 raise Exception("ERROR dropping table {}".format(vTable))
             
             # Create external part table parsing parquet files from bucket root (for incremental mode)
-            if self.bronze_source_properties.incremental:
+            if self.isexternalpartionedtable():
                 # Create external part table parsing parquet files from bucket root (for incremental mode)
                 root_path = self.bucket_file_path.split("/")[0]+"/"
                 create = 'BEGIN DBMS_CLOUD.CREATE_EXTERNAL_PART_TABLE(table_name =>\'' + vTable + '\',credential_name =>\'' + self.bronze_bucket_proxy.get_oci_adw_credential() + '\', file_uri_list =>\'' + self.bronze_bucket_proxy.get_oci_objectstorage_url() + self.bronze_bucket_proxy.get_bucket_name() + '/o/'+root_path+'*' + self.parquet_file_name_template + '*.parquet\', format => \'{"type":"parquet", "schema": "first","partition_columns":[{"name":"fetch_year","type":"varchar2(100)"},{"name":"fetch_month","type":"varchar2(100)"},{"name":"fetch_day","type":"varchar2(100)"}]}\'); END;'
@@ -1462,7 +1475,7 @@ class BronzeSourceBuilder:
             self.set_bronze_status('parquet_sent')
             return True
         self.parquet_file_list_tosend = []
-        if not self.bronze_source_properties.incremental:
+        if not self.isexternalpartionedtable():
             # if not incremental mode, merging parquet files into one, before sending
             merged_parquet_file_name = self.parquet_file_name_template+PARQUET_FILE_EXTENSION
             merged_parquet_file = os.path.join(self.local_workingdir, merged_parquet_file_name)
@@ -1513,7 +1526,7 @@ class BronzeSourceBuilder:
 
     def update_bronze_schema(self,verbose):
         try:
-            message = "Update Bronze schema {} : Incremental {}".format(self.bronze_table, bool(self.bronze_source_properties.incremental))
+            message = "Update Bronze schema {} : External Partioned Table {}".format(self.bronze_table, bool(self.isexternalpartionedtable()))
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "UPADATE_BRONZE", "START", log_message=message)
             if not self.parquet_file_list:
@@ -1521,7 +1534,7 @@ class BronzeSourceBuilder:
                 if verbose:
                     verbose.log(datetime.now(tz=timezone.utc), "UPADATE_BRONZE", "END", log_message=message)
                 res = True
-            elif self.bronze_source_properties.incremental and self.get_bronzedb_manager().is_table_exists(self.bronze_table):
+            elif self.isexternalpartionedtable() and self.get_bronzedb_manager().is_table_exists(self.bronze_table):
                 # if incremental mode, if table exists, update (synchronize) external part table
                 res = self.__sync_bronze_table__(verbose)
             else:
@@ -1612,7 +1625,7 @@ class BronzeGenerator:
             #Get indexes of source table
             v_dict_update_exploit['source_table_indexes'] = self.v_bronzesourcebuilder.get_source_table_indexes()
              # if incremental integration, get lastupdate date to update Exploit loading table and build bronze bis merge join            
-            if v_sourceProperties.incremental:
+            if self.v_bronzesourcebuilder.isexternalpartionedtable():
                 v_lastupdate_date = self.v_bronzesourcebuilder.get_bronze_row_lastupdate_date()
                 v_bronze_bis_pk = self.v_bronzesourcebuilder.get_bronze_bis_pk()
             else:

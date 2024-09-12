@@ -25,7 +25,8 @@ class BronzeSourceBuilderFileEXCEL(BronzeSourceBuilderFile):
             # Defining the sheet_name as the second argument (src_table)
             _wrksheet = fileargs[1]
             file_read_options = dict_convert_values_str_to_int(file_read_options)
-            _df = pd.read_excel(_file, sheet_name=_wrksheet, **file_read_options)
+            # 'NA' value will be kept as is in the DataFrame, while other values ​​specified in na_values ​​will be converted to NaN.
+            _df = pd.read_excel(_file, sheet_name=_wrksheet, keep_default_na=False, na_values=["", "N/A", "NULL", "NaN", None],**file_read_options)
             return _df
         else:
-            raise ValueError("No file path provided")
+            raise ValueError("No file path provided") 

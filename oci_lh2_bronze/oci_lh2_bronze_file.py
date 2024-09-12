@@ -92,7 +92,7 @@ class BronzeSourceBuilderFile(BronzeSourceBuilder):
                 # Call method to import file
                 _df = self.__import_file__(input_file,self.bronze_source_properties.table,**self.file_read_options)
 
-                # Store table content aas force type convertion 
+                # Store table content as force type convertion 
                 if self.bronze_source_properties.force_encode:
                     self.df_table_content = _df.astype(self.bronze_source_properties.force_encode)
                 else:
