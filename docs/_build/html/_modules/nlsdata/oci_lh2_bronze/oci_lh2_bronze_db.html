@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+
+<html lang="fr" data-content_root="../../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>nlsdata.oci_lh2_bronze.oci_lh2_bronze_db &#8212; Documentation NLSDATA 1.0.0</title>
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=d1102ebc" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/alabaster.css?v=12dfc556" />
+    <script src="../../../_static/documentation_options.js?v=05dadb3a"></script>
+    <script src="../../../_static/doctools.js?v=9a2dae69"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../../_static/translations.js?v=041d0952"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Recherche" href="../../../search.html" />
+   
+  <link rel="stylesheet" href="../../../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <h1>Code source de nlsdata.oci_lh2_bronze.oci_lh2_bronze_db</h1><div class="highlight"><pre>
+<span></span><span class="kn">import</span> <span class="nn">oracledb</span>
+<span class="kn">import</span> <span class="nn">pandas</span> <span class="k">as</span> <span class="nn">pd</span>
+
+<span class="kn">from</span> <span class="nn">nlsdata.oci_lh2_bronze.oci_lh2_bronze</span> <span class="kn">import</span> <span class="o">*</span>
+
+
+<div class="viewcode-block" id="BronzeSourceBuilderDb">
+<a class="viewcode-back" href="../../../nlsdata.oci_lh2_bronze.html#nlsdata.oci_lh2_bronze.oci_lh2_bronze_db.BronzeSourceBuilderDb">[docs]</a>
+<span class="k">class</span> <span class="nc">BronzeSourceBuilderDb</span><span class="p">(</span><span class="n">BronzeSourceBuilder</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&#39;&#39;&#39;BronzeSourceBuilder DB class&#39;&#39;&#39;</span>
+
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pSourceProperties</span><span class="p">:</span><span class="n">SourceProperties</span><span class="p">,</span> <span class="n">pBronze_config</span><span class="p">:</span><span class="n">BronzeConfig</span><span class="p">,</span> <span class="n">pBronzeDb_Manager</span><span class="p">:</span><span class="n">BronzeDbManager</span><span class="p">,</span> <span class="n">pLogger</span><span class="p">:</span><span class="n">BronzeLogger</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&#39;&#39;&#39;BronzeSourceBuilder DB class constructor&#39;&#39;&#39;</span>
+
+        <span class="n">vSourceProperties</span> <span class="o">=</span> <span class="n">pSourceProperties</span><span class="o">.</span><span class="n">_replace</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s2">&quot;DB&quot;</span><span class="p">)</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">vSourceProperties</span><span class="p">,</span> <span class="n">pBronze_config</span><span class="p">,</span> <span class="n">pBronzeDb_Manager</span><span class="p">,</span><span class="n">pLogger</span><span class="p">)</span>
+
+        <span class="c1"># Create connexion to source database</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">source_database_param</span> <span class="o">=</span> <span class="n">get_parser_config_settings</span><span class="p">(</span><span class="s2">&quot;database&quot;</span><span class="p">)(</span><span class="bp">self</span><span class="o">.</span><span class="n">bronze_config</span><span class="o">.</span><span class="n">get_configuration_file</span><span class="p">(),</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_bronze_source_properties</span><span class="p">()</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">source_db</span> <span class="o">=</span> <span class="n">DBFACTORY</span><span class="o">.</span><span class="n">create_instance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">source_database_param</span><span class="o">.</span><span class="n">dbwrapper</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">bronze_config</span><span class="o">.</span><span class="n">get_configuration_file</span><span class="p">())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">source_db_connection</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">source_db</span><span class="o">.</span><span class="n">create_db_connection</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">source_database_param</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">source_db_connection</span><span class="p">:</span>
+            <span class="n">vError</span> <span class="o">=</span> <span class="s2">&quot;ERROR connecting to : </span><span class="si">{}</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_bronze_source_properties</span><span class="p">()</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="n">vError</span><span class="p">)</span>
+
+        <span class="c1"># Customize select to force encode of columns</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">__custom_select_from_source__</span><span class="p">()</span>
+
+
+<div class="viewcode-block" id="BronzeSourceBuilderDb.get_bronze_row_lastupdate_date">
+<a class="viewcode-back" href="../../../nlsdata.oci_lh2_bronze.html#nlsdata.oci_lh2_bronze.oci_lh2_bronze_db.BronzeSourceBuilderDb.get_bronze_row_lastupdate_date">[docs]</a>
+    <span class="k">def</span> <span class="nf">get_bronze_row_lastupdate_date</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&#39;&#39;&#39;Get Bronze row last update date method&#39;&#39;&#39;</span>
+    
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">bronze_date_lastupdated_row</span><span class="p">:</span>
+            <span class="n">v_dict_join</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_externaltablepartition_properties</span><span class="p">()</span><span class="o">.</span><span class="n">_asdict</span><span class="p">()</span>
+            <span class="n">v_join</span><span class="o">=</span> <span class="s2">&quot; AND &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">([</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">INVERTED_EXTERNAL_TABLE_PARTITION_SYNONYMS</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">key</span><span class="p">,</span><span class="n">key</span><span class="p">)</span><span class="si">}</span><span class="s2"> = &#39;</span><span class="si">{</span><span class="n">value</span><span class="si">}</span><span class="s2">&#39;&quot;</span> <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">v_dict_join</span><span class="o">.</span><span class="n">items</span><span class="p">()])</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">bronze_date_lastupdated_row</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_bronzedb_manager</span><span class="p">()</span><span class="o">.</span><span class="n">get_bronze_lastupdated_row</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">bronze_table</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">bronze_source_properties</span><span class="o">.</span><span class="n">date_criteria</span><span class="p">,</span> <span class="n">v_join</span><span class="p">)</span>
+    
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">bronze_date_lastupdated_row</span></div>
+
+    
+    
+<div class="viewcode-block" id="BronzeSourceBuilderDb.get_source_table_indexes">
+<a class="viewcode-back" href="../../../nlsdata.oci_lh2_bronze.html#nlsdata.oci_lh2_bronze.oci_lh2_bronze_db.BronzeSourceBuilderDb.get_source_table_indexes">[docs]</a>
+    <span class="k">def</span> <span class="nf">get_source_table_indexes</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&#39;&#39;&#39;Get source table indexes if not already defined&#39;&#39;&#39;</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">source_table_indexes</span><span class="p">:</span>
+            <span class="n">v_dict_source_table_indexes</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">source_db</span><span class="o">.</span><span class="n">get_table_indexes</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_bronze_source_properties</span><span class="p">()</span><span class="o">.</span><span class="n">table</span><span class="p">)</span>
+            <span class="n">v_source_table_indexes</span> <span class="o">=</span>  <span class="n">dict_to_string</span><span class="p">(</span><span class="n">v_dict_source_table_indexes</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">source_table_indexes</span> <span class="o">=</span> <span class="n">v_source_table_indexes</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s1">&#39;</span><span class="se">\&#39;</span><span class="s1">&#39;</span><span class="p">,</span> <span class="s1">&#39;&#39;</span><span class="p">)</span> <span class="k">if</span> <span class="n">v_source_table_indexes</span> <span class="k">else</span> <span class="kc">None</span>
+
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">source_table_indexes</span></div>
+
+    
+
+<div class="viewcode-block" id="BronzeSourceBuilderDb.get_bronze_bis_pk">
+<a class="viewcode-back" href="../../../nlsdata.oci_lh2_bronze.html#nlsdata.oci_lh2_bronze.oci_lh2_bronze_db.BronzeSourceBuilderDb.get_bronze_bis_pk">[docs]</a>
+    <span class="k">def</span> <span class="nf">get_bronze_bis_pk</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&#39;&#39;&#39;List columns of primary key based on source table indexes : search for unique index unique index name ends with _U{digit} or _PK&#39;&#39;&#39;</span>
+        
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">bronze_bis_pk</span><span class="p">:</span>
+            <span class="c1"># Convert string with tables indexes to dictionnary</span>
+            <span class="n">v_dict_tables_indexes</span> <span class="o">=</span> <span class="n">convert_string_to_dict</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_source_table_indexes</span><span class="p">())</span>
+            <span class="n">v_pattern</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="sa">r</span><span class="s1">&#39;.*_(U\d+|PK)$&#39;</span><span class="p">)</span>
+            <span class="n">v_key</span> <span class="o">=</span> <span class="kc">None</span>
+            
+            <span class="c1"># Search key (index name) ends with _U{digit} or _PK</span>
+            <span class="k">if</span> <span class="n">v_dict_tables_indexes</span><span class="p">:</span>
+                <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">v_dict_tables_indexes</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="n">v_pattern</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">key</span><span class="p">):</span>
+                        <span class="n">v_key</span> <span class="o">=</span> <span class="n">key</span>
+                        <span class="k">break</span>
+            
+            <span class="c1"># Get list of index columns</span>
+            <span class="n">v_list_columns_index</span> <span class="o">=</span> <span class="n">v_dict_tables_indexes</span><span class="p">[</span><span class="n">v_key</span><span class="p">]</span> <span class="k">if</span> <span class="n">v_key</span> <span class="k">else</span> <span class="kc">None</span>
+            
+            <span class="c1"># Build join for merge between source table S and target table T</span>
+            <span class="n">v_pk_columns</span> <span class="o">=</span> <span class="s2">&quot;,&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">([</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">value</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">for</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">v_list_columns_index</span><span class="p">])</span> <span class="k">if</span> <span class="n">v_list_columns_index</span> <span class="k">else</span> <span class="kc">None</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">bronze_bis_pk</span> <span class="o">=</span> <span class="n">v_pk_columns</span>
+    
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">bronze_bis_pk</span></div>
+
+    
+
+    <span class="k">def</span> <span class="nf">__set_bronze_bucket_proxy__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&#39;&#39;&#39;define settings for bucket, especially storagename... could depends on subclass&#39;&#39;&#39;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">bronze_bucket_proxy</span><span class="o">.</span><span class="n">set_bucket_by_extension</span><span class="p">(</span><span class="n">p_bucket_extension</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">get_bronze_source_properties</span><span class="p">()</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+    
+
+    <span class="k">def</span> <span class="nf">__set_bronze_table_settings__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&#39;&#39;&#39;define bronze table name, bucket path to add parquet files, get index to restart parquet files interation&#39;&#39;&#39;</span>
+
+        <span class="n">v_bronze_table_name</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_bronze_source_properties</span><span class="p">()</span><span class="o">.</span><span class="n">bronze_table_name</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">v_bronze_table_name</span><span class="p">:</span>
+            <span class="n">v_bronze_table_name</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">bronze_table</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_bronze_source_properties</span><span class="p">()</span><span class="o">.</span><span class="n">name</span> <span class="o">+</span> <span class="s2">&quot;_&quot;</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_bronze_source_properties</span><span class="p">()</span><span class="o">.</span><span class="n">schema</span> <span class="o">+</span> <span class="s2">&quot;_&quot;</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_bronze_source_properties</span><span class="p">()</span><span class="o">.</span><span class="n">table</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">&quot; &quot;</span><span class="p">,</span> <span class="s2">&quot;_&quot;</span><span class="p">)</span>
+        
+        <span class="bp">self</span><span class="o">.</span><span class="n">bronze_table</span> <span class="o">=</span> <span class="n">v_bronze_table_name</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
+        
+        <span class="c1"># Define template name of parquet files</span>
+        <span class="c1">#self.parquet_file_name_template = self.get_bronze_source_properties().name + &quot;_&quot; + self.get_bronze_source_properties().table.replace(&quot; &quot;, &quot;_&quot;)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">parquet_file_name_template</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">bronze_table</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">parquet_file_id</span> <span class="o">=</span> <span class="mi">0</span>
+        
+        <span class="c1"># Define the path for storing parquets files in the bucket</span>
+        <span class="c1">#self.bucket_file_path = self.get_bronze_source_properties().schema + &quot;/&quot; + self.year + &quot;/&quot; + self.month + &quot;/&quot; + self.day + &quot;/&quot;</span>
+        <span class="n">v_dict_externaltablepartition</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_externaltablepartition_properties</span><span class="p">()</span><span class="o">.</span><span class="n">_asdict</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">bucket_file_path</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_bronze_source_properties</span><span class="p">()</span><span class="o">.</span><span class="n">schema</span> <span class="o">+</span> <span class="s2">&quot;/&quot;</span> <span class="o">+</span> <span class="s1">&#39;/&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">([</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">v_dict_externaltablepartition</span><span class="o">.</span><span class="n">values</span><span class="p">()])</span> <span class="o">+</span> <span class="s2">&quot;/&quot;</span>
+        
+        <span class="c1"># Get the index of the last Parquet file in the bucket</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">parquet_file_id</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__get_last_parquet_idx_in_bucket__</span><span class="p">()</span>
+        
+
+<div class="viewcode-block" id="BronzeSourceBuilderDb.fetch_source">
+<a class="viewcode-back" href="../../../nlsdata.oci_lh2_bronze.html#nlsdata.oci_lh2_bronze.oci_lh2_bronze_db.BronzeSourceBuilderDb.fetch_source">[docs]</a>
+    <span class="k">def</span> <span class="nf">fetch_source</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="n">verbose</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&#39;&#39;&#39;Fetch source method&#39;&#39;&#39;</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">source_db_connection</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s2">&quot;Error no DB connection&quot;</span><span class="p">)</span>
+
+            <span class="c1"># Execute a SQL query to fetch all data from the current table</span>
+            <span class="k">if</span> <span class="n">verbose</span><span class="p">:</span>
+                <span class="n">message</span> <span class="o">=</span> <span class="s2">&quot;Mode </span><span class="si">{2}</span><span class="s2"> : Extracting data </span><span class="si">{0}</span><span class="s2">,</span><span class="si">{1}</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_bronze_source_properties</span><span class="p">()</span><span class="o">.</span><span class="n">schema</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_bronze_source_properties</span><span class="p">()</span><span class="o">.</span><span class="n">table</span><span class="p">,</span> <span class="n">SQL_READMODE</span><span class="p">)</span>
+                <span class="n">verbose</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">(</span><span class="n">tz</span><span class="o">=</span><span class="n">timezone</span><span class="o">.</span><span class="n">utc</span><span class="p">),</span> <span class="s2">&quot;FETCH&quot;</span><span class="p">,</span> <span class="s2">&quot;START&quot;</span><span class="p">,</span> <span class="n">log_message</span><span class="o">=</span><span class="n">message</span><span class="p">,</span> <span class="n">log_request</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">request</span> <span class="o">+</span> <span class="s1">&#39;: &#39;</span><span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">db_execute_bind</span><span class="p">))</span>
+
+            <span class="bp">self</span><span class="o">.</span><span class="n">df_table_content</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">()</span>
+
+            <span class="k">match</span> <span class="n">SQL_READMODE</span><span class="p">:</span>
+                <span class="k">case</span> <span class="s2">&quot;DBCURSOR&quot;</span><span class="p">:</span>
+                    <span class="n">cursor</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">source_db_connection</span><span class="o">.</span><span class="n">cursor</span><span class="p">()</span>
+                    <span class="n">cursor</span><span class="o">.</span><span class="n">arraysize</span> <span class="o">=</span> <span class="n">DB_ARRAYSIZE</span>
+
+                    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">db_execute_bind</span><span class="p">:</span>
+                        <span class="c1"># where clause on date</span>
+                        <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">db_execute_bind</span><span class="p">)</span>
+                    <span class="k">else</span><span class="p">:</span>
+                        <span class="n">cursor</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="p">)</span>
+
+                    <span class="k">while</span> <span class="kc">True</span><span class="p">:</span>
+                        <span class="c1"># Fetch data by chunk and convert to dataframe</span>
+                        <span class="c1"># chunk specified by DB_ARREYSIZE</span>
+                        <span class="n">rows</span> <span class="o">=</span> <span class="n">cursor</span><span class="o">.</span><span class="n">fetchmany</span><span class="p">()</span>
+
+                        <span class="c1"># Map column name from cursor to df ; force types of columns based on cursor type</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">df_table_content</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">source_db</span><span class="o">.</span><span class="n">create_df_with_db_cursor</span><span class="p">(</span><span class="n">rows</span><span class="p">,</span> <span class="n">cursor</span><span class="o">.</span><span class="n">description</span><span class="p">)</span>
+                        
+                        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">df_table_content</span><span class="o">.</span><span class="n">empty</span><span class="p">:</span>
+                            <span class="k">break</span>
+                        
+                        <span class="c1"># Create parquet file for current chunk dataframe</span>
+                        <span class="n">res</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__create_parquet_file__</span><span class="p">(</span><span class="n">verbose</span><span class="p">)</span>
+                        <span class="k">if</span> <span class="ow">not</span> <span class="n">res</span><span class="p">:</span>
+                            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s2">&quot;Error creating parquet file&quot;</span><span class="p">)</span>
+                        
+                        <span class="c1"># Update total count of imported rows</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">__update_fetch_row_stats__</span><span class="p">()</span>
+                        <span class="n">elapsed</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span> <span class="o">-</span><span class="bp">self</span><span class="o">.</span><span class="n">fetch_start</span>
+                        
+                        <span class="k">if</span> <span class="n">verbose</span><span class="p">:</span>
+                            <span class="n">message</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="si">{0}</span><span class="s2"> rows in </span><span class="si">{1}</span><span class="s2"> seconds&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">total_imported_rows</span><span class="p">,</span> <span class="n">elapsed</span><span class="p">)</span>
+                            <span class="n">verbose</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">(</span><span class="n">tz</span><span class="o">=</span><span class="n">timezone</span><span class="o">.</span><span class="n">utc</span><span class="p">),</span> <span class="s2">&quot;FETCH&quot;</span><span class="p">,</span> <span class="s2">&quot;RUN&quot;</span><span class="p">,</span> <span class="n">log_message</span><span class="o">=</span><span class="n">message</span><span class="p">)</span>
+  
+                    <span class="n">cursor</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+                
+                <span class="k">case</span> <span class="s2">&quot;PANDAS&quot;</span><span class="p">:</span>
+                    <span class="c1"># Fetch data by chunk and convert to dataframe</span>
+                    <span class="k">for</span> <span class="n">df_chunk</span> <span class="ow">in</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_sql</span><span class="p">(</span><span class="n">sql</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="p">,</span> <span class="n">con</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">source_db_connection</span><span class="p">,</span> <span class="n">chunksize</span><span class="o">=</span><span class="n">PANDAS_CHUNKSIZE</span><span class="p">):</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">df_table_content</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">concat</span><span class="p">([</span><span class="bp">self</span><span class="o">.</span><span class="n">df_table_content</span><span class="p">,</span> <span class="n">df_chunk</span><span class="p">])</span>
+                        
+                        <span class="c1"># Create parquet file for current chunk dataframe</span>
+                        <span class="n">res</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__create_parquet_file__</span><span class="p">(</span><span class="n">verbose</span><span class="p">)</span>
+                        
+                        <span class="k">if</span> <span class="ow">not</span> <span class="n">res</span><span class="p">:</span>
+                            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s2">&quot;Error creating parquet file&quot;</span><span class="p">)</span>
+                        
+                        <span class="c1"># Update total count of imported rows</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">__update_fetch_row_stats__</span><span class="p">()</span>
+                        <span class="n">elapsed</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">fetch_start</span>
+                        
+                        <span class="k">if</span> <span class="n">verbose</span><span class="p">:</span>
+                            <span class="n">message</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="si">{0}</span><span class="s2"> rows in </span><span class="si">{1}</span><span class="s2"> seconds&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">total_imported_rows</span><span class="p">,</span> <span class="n">elapsed</span><span class="p">)</span>
+                            <span class="n">verbose</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">(</span><span class="n">tz</span><span class="o">=</span><span class="n">timezone</span><span class="o">.</span><span class="n">utc</span><span class="p">),</span> <span class="s2">&quot;FETCH&quot;</span><span class="p">,</span> <span class="s2">&quot;RUN&quot;</span><span class="p">,</span> <span class="n">log_message</span><span class="o">=</span><span class="n">message</span><span class="p">)</span>
+        
+            <span class="k">return</span> <span class="kc">True</span>
+        
+        <span class="c1"># Catching Unicode Decode Error</span>
+        <span class="k">except</span> <span class="ne">UnicodeDecodeError</span> <span class="k">as</span> <span class="n">err</span><span class="p">:</span>  
+            <span class="n">vError</span> <span class="o">=</span> <span class="s2">&quot;ERROR Unicode Decode, table </span><span class="si">{}</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_bronze_source_properties</span><span class="p">()</span><span class="o">.</span><span class="n">table</span><span class="p">)</span>
+        
+            <span class="k">if</span> <span class="n">verbose</span><span class="p">:</span>
+                <span class="n">verbose</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">(</span><span class="n">tz</span><span class="o">=</span><span class="n">timezone</span><span class="o">.</span><span class="n">utc</span><span class="p">),</span> <span class="s2">&quot;FETCH&quot;</span><span class="p">,</span> <span class="n">vError</span><span class="p">,</span> <span class="n">log_message</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">err</span><span class="p">),</span> <span class="n">log_request</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="p">)</span>
+        
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">pError</span><span class="o">=</span><span class="n">err</span><span class="p">,</span> <span class="n">pAction</span><span class="o">=</span><span class="n">vError</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">__update_fetch_row_stats__</span><span class="p">()</span>
+        
+            <span class="k">return</span> <span class="kc">False</span>
+        
+        <span class="k">except</span> <span class="n">oracledb</span><span class="o">.</span><span class="n">Error</span> <span class="k">as</span> <span class="n">err</span><span class="p">:</span>
+            <span class="n">vError</span> <span class="o">=</span> <span class="s2">&quot;ERROR Fetching table </span><span class="si">{}</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_bronze_source_properties</span><span class="p">()</span><span class="o">.</span><span class="n">table</span><span class="p">)</span>
+        
+            <span class="k">if</span> <span class="n">verbose</span><span class="p">:</span>
+                <span class="n">verbose</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">(</span><span class="n">tz</span><span class="o">=</span><span class="n">timezone</span><span class="o">.</span><span class="n">utc</span><span class="p">),</span> <span class="s2">&quot;FETCH&quot;</span><span class="p">,</span> <span class="n">vError</span><span class="p">,</span> <span class="n">log_message</span><span class="o">=</span><span class="s1">&#39;Oracle DB error :</span><span class="si">{}</span><span class="s1">&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">err</span><span class="p">)),</span> <span class="n">log_request</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="p">)</span>
+        
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">pError</span><span class="o">=</span><span class="n">err</span><span class="p">,</span> <span class="n">pAction</span><span class="o">=</span><span class="n">vError</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">__update_fetch_row_stats__</span><span class="p">()</span>
+        
+            <span class="k">return</span> <span class="kc">False</span>
+        
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">err</span><span class="p">:</span>
+            <span class="n">vError</span> <span class="o">=</span> <span class="s2">&quot;ERROR Fetching table </span><span class="si">{}</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_bronze_source_properties</span><span class="p">()</span><span class="o">.</span><span class="n">table</span><span class="p">)</span>
+        
+            <span class="k">if</span> <span class="n">verbose</span><span class="p">:</span>
+                <span class="n">verbose</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">(</span><span class="n">tz</span><span class="o">=</span><span class="n">timezone</span><span class="o">.</span><span class="n">utc</span><span class="p">),</span> <span class="s2">&quot;FETCH&quot;</span><span class="p">,</span> <span class="n">vError</span><span class="p">,</span> <span class="n">log_message</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">err</span><span class="p">),</span> <span class="n">log_request</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="p">)</span>
+        
+            <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">pError</span><span class="o">=</span><span class="n">err</span><span class="p">,</span> <span class="n">pAction</span><span class="o">=</span><span class="n">vError</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">__update_fetch_row_stats__</span><span class="p">()</span>
+        
+            <span class="k">return</span> <span class="kc">False</span></div>
+</div>
+
+</pre></div>
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../../../index.html">NLSDATA</a></h1>
+
+
+
+
+
+
+
+
+<h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../modules.html">nlsdata</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../../../index.html">Documentation overview</a><ul>
+  <li><a href="../../index.html">Code du module</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+<search id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Recherche rapide</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="../../../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2024, Ramjattan Keny.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 7.4.7</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 0.7.16</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

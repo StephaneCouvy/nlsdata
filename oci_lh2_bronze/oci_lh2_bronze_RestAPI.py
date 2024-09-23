@@ -91,6 +91,7 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
                             else:
                                 self.cache[link] = None
                                 return None
+                            
                 except aiohttp.ClientError as e:
                     print(f"HTTP error occurred: {e} for URL: {link}")
                     attempt += 1
