@@ -14,9 +14,8 @@ class BronzeSourceBuilderFileEXCEL(BronzeSourceBuilderFile):
         super().__init__(pSourceProperties,pBronze_config, pBronzeDb_Manager, pLogger)
  
 
-    # Method to import Excel or Turkey files
     def __import_file__(self, *fileargs, **file_read_options):
-        ''' This method reads Excel and Turkey files.'''
+        '''This method reads Excel and Turkey files.'''
 
         if fileargs:
             # Determine file type based on source name

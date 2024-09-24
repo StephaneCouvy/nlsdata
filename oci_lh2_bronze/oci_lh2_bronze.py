@@ -67,7 +67,7 @@ class BronzeConfig():
 
         if self.options.environment == "DEBUG":
             self.debug = True
-            self.oci_settings = get_parser_config_settings("filestorage")(self.configuration_file,FILESTORAGE_BRONZE_BUCKET_DEBUG)
+            self.oci_settings = get_parser_config_settings("filestorage")(self.configuration_file, FILESTORAGE_BRONZE_BUCKET_DEBUG)
         else:
             self.debug = False
             self.oci_settings = get_parser_config_settings("filestorage")(self.configuration_file,FILESTORAGE_BRONZE_BUCKET)

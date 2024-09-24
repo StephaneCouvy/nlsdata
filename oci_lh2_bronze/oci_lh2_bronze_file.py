@@ -55,7 +55,10 @@ class BronzeSourceBuilderFile(BronzeSourceBuilder):
     
 
     def pre_fetch_source(self, verbose=None):
-        '''Pre fetch source method'''
+        '''Pre fetch source method
+        
+        Recover all files from filesotrage, set table status to 'PRE_FETCH'
+        '''
     
         super().pre_fetch_source()
 

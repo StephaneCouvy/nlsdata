@@ -8,7 +8,7 @@ class BronzeSourceBuilderDb(BronzeSourceBuilder):
     '''BronzeSourceBuilder DB class'''
 
     def __init__(self, pSourceProperties:SourceProperties, pBronze_config:BronzeConfig, pBronzeDb_Manager:BronzeDbManager, pLogger:BronzeLogger):
-        '''BronzeSourceBuilder DB class constructor'''
+        '''BronzeSourceBuilder DB constructor'''
 
         vSourceProperties = pSourceProperties._replace(type="DB")
         super().__init__(vSourceProperties, pBronze_config, pBronzeDb_Manager,pLogger)
@@ -104,7 +104,10 @@ class BronzeSourceBuilderDb(BronzeSourceBuilder):
         
 
     def fetch_source(self,verbose=None):
-        '''Fetch source method'''
+        '''Fetch source method
+        
+        Create parquet file depending on data source (dbcursor, pandas.dataframe)
+        '''
 
         try:
             if not self.source_db_connection:
@@ -141,6 +144,7 @@ class BronzeSourceBuilderDb(BronzeSourceBuilder):
                         
                         # Create parquet file for current chunk dataframe
                         res = self.__create_parquet_file__(verbose)
+                        
                         if not res:
                             raise Exception("Error creating parquet file")
                         

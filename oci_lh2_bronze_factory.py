@@ -25,7 +25,7 @@ class NLSDataBronzeFactory():
     def load_bronze_wrappers(self):
         '''Load bronze wrappers method'''
 
-        modules = [(name,obj) for name,obj in getmembers(PACKAGE,lambda m: ismodule(m))]
+        modules = [(name,obj) for name,obj in getmembers(PACKAGE, lambda m: ismodule(m))]
         
         for module in modules:
             classes = getmembers(module[1], lambda m: isclass(m) and not isabstract(m))
@@ -35,7 +35,10 @@ class NLSDataBronzeFactory():
 
 
     def create_instance(self, wrapper_name, /, *args, **kwargs):
-        '''Create instance method'''
+        '''Create instance method
+        
+        Determinate source type (ORACLESQL, FILE_CSV ..)
+        '''
 
         if wrapper_name in self.lh2_bronze_wrappers:
             return self.lh2_bronze_wrappers[wrapper_name](*args, **kwargs)
