@@ -1,5 +1,4 @@
 import requests
-import pytz
 from requests.auth import HTTPBasicAuth
 from nlsdata.oci_lh2_bronze.oci_lh2_bronze import *
 import aiohttp
@@ -7,13 +6,17 @@ import asyncio
 import time
 from datetime import datetime
 
-CHANGE_DATE_FORMAT = ['sys_updated_on', 'inc_sys_updated_on', 'md_sys_updated_on', 'mi_sys_updated_on',
-                      'sys_created_on', 'closed_at', 'opened_at', 'business_duration',
+
+'''CHANGE_DATE_FORMAT = ['sys_updated_on', 'inc_sys_updated_on', 'md_sys_updated_on', 'mi_sys_updated_on',
+                      'sys_created_on', 'closed_at', 'opened_at', 'business_duration', 'activity_due', 'sla_due'
                       'calendar_duration', 'requested_by_date', 'approval_set', 'end_date', 'work_start', 'start_date',
-                      'work_end', 'conflict_last_run', 'resolved_at', 'u_duration_calc', 'reopened_time',
-                      'inc_u_duration_calc', 'mi_sys_created_on', 'inc_sys_created_on', 'inc_business_duration',
-                      'inc_calendar_duration', 'md_sys_created_on', 'inc_opened_at', 'inc_resolved_at', 'inc_closed_at']
-RENAME_COLUMNS = ['number', 'order']
+                      'work_end', 'conflict_last_run', 'resolved_at', 'u_duration_calc', 'reopened_time', 'u_state_changed_date',
+                      'inc_u_duration_calc', 'mi_sys_created_on', 'inc_sys_created_on', 'inc_business_duration', 'due_date'
+                      'inc_calendar_duration', 'md_sys_created_on', 'inc_opened_at', 'inc_resolved_at', 'inc_closed_at', 'mi_business_duration', 'mi_duration', 'mi_start', 'mi_end']
+'''
+
+
+RENAME_COLUMNS = ['number', 'order'] # Column's name where name is a SQL operation
 
 
 class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
@@ -32,6 +35,8 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
         self.auth = aiohttp.BasicAuth(self.user, self.password)
         self.cache = {}
         self.semaphore = asyncio.Semaphore(10)
+        self.columns_change_date_format = []
+
         if self.bronze_source_properties.incremental:
             self.params["sysparm_query"] = f"{self.bronze_source_properties.date_criteria}>{self.bronze_source_properties.last_update}"
         self.response = requests.get(self.url + self.endpoint, auth=HTTPBasicAuth(self.user, self.password), params=self.params)
@@ -46,9 +51,11 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
             v_join = " AND ".join(
                 [f"{INVERTED_EXTERNAL_TABLE_PARTITION_SYNONYMS.get(key, key)} = '{value}'" for key, value in
                  v_dict_join.items()])
+
             self.bronze_date_lastupdated_row = self.get_bronzedb_manager().get_bronze_lastupdated_row(self.bronze_table,
                                                                                                       self.bronze_source_properties.date_criteria,
                                                                                                       v_join)
+
         return self.bronze_date_lastupdated_row
 
     def __set_bronze_bucket_proxy__(self):
@@ -56,9 +63,11 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
 
     def __set_bronze_table_settings__(self):
         v_bronze_table_name = self.get_bronze_source_properties().bronze_table_name
+
         if not v_bronze_table_name:
             v_bronze_table_name = self.bronze_table = self.get_bronze_source_properties().name + "_" + self.get_bronze_source_properties().schema + "_" + self.get_bronze_source_properties().table.replace(
                 " ", "_")
+
         self.bronze_table = v_bronze_table_name.upper()
         self.parquet_file_name_template = self.bronze_table
         self.parquet_file_id = 0
@@ -67,75 +76,18 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
             [f"{key}" for key in v_dict_externaltablepartition.values()]) + "/"
         self.parquet_file_id = self.__get_last_parquet_idx_in_bucket__()
 
-    async def fetch_name_from_link(self, session, link, retries=3):
-        if link in self.cache:
-            return self.cache[link]
-
-        attempt = 0
-        while attempt < retries:
-            async with self.semaphore:
-                try:
-                    async with session.get(link, auth=self.auth) as response:
-                        content_type = response.headers.get('Content-Type', '')
-                        if 'application/json' not in content_type:
-                            content = await response.text()
-                            print(f"Unexpected content type for {link}. Response content: {content}")
-                            final_segment = link.rsplit('/', 1)[-1]
-                            self.cache[link] = final_segment
-                            return final_segment
-
-                        response_data = await response.json()
-                        if response_data.get('result', {}).get('name'):
-                            name = response_data.get('result', {}).get('name')
-                            if name is not None:
-                                self.cache[link] = name
-                                return name
-                        elif response_data.get('result', {}).get('number'):
-                            number = response_data.get('result', {}).get('number')
-                            self.cache[link] = number
-                            return number
-                        else:
-                            final_segment = link.rsplit('/', 1)[-1]
-                            if final_segment == 'global':
-                                self.cache[link] = final_segment
-                                return final_segment
-                            else:
-                                self.cache[link] = None
-                                return None
-                except aiohttp.ClientError as e:
-                    print(f"HTTP error occurred: {e} for URL: {link}")
-                    attempt += 1
-                    if attempt < retries:
-                        await asyncio.sleep(2 ** attempt)
-                    else:
-                        final_segment = link.rsplit('/', 1)[-1]
-                        self.cache[link] = final_segment
-                        return final_segment
-
-        final_segment = link.rsplit('/', 1)[-1]
-        self.cache[link] = final_segment
-        return final_segment
-
-    async def transform_data(self, session, df):
-        dict_columns = [col for col in df.columns if df[col].apply(lambda x: isinstance(x, dict)).any()]
-
-        for col in dict_columns:
-            df[col] = await asyncio.gather(
-                *[self.fetch_name_from_link(session, value['link']) if isinstance(value,
-                                                                                  dict) and 'link' in value else asyncio.sleep(
-                    0, result=value) for value in df[col]]
-            )
-
-        return df
-
     async def fetch_chunk(self, session, offset, limit):
+        '''
+        Fetch chunk where the size of each is determinated by offset
+        '''
         self.params['sysparm_offset'] = offset
         self.params['sysparm_limit'] = limit
         try:
+            # Get json data
             async with session.get(self.url + self.endpoint, auth=self.auth, params=self.params) as response:
-                response.raise_for_status()
                 data = await response.json()
                 return data.get('result', [])
+
         except aiohttp.ClientError as e:
             print(f"HTTP error occurred: {e}")
             return []
@@ -143,9 +95,56 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
             print(f"An unexpected error occurred: {e}")
             return []
 
+    def get_columns_to_transform(self, df):
+        '''
+        Get columns from df where date format is str(yyy-MM-DD HH:MM:SS)
+        '''
+        for col in df.columns:
+            first_non_null_value = next((value for value in df[col] if pd.notnull(value)), None)
+
+            if isinstance(first_non_null_value, str) and len(first_non_null_value) == 19:
+                try:
+                    # Test if conversion is possible
+                    datetime.strptime(first_non_null_value, "%Y-%m-%d %H:%M:%S")
+                    self.columns_change_date_format.append(col)
+                except ValueError:
+                    pass
+
+    def transform_columns(self, df):
+        '''
+        Change date format, timezone, and columns where column's name is a SQL operation
+        '''
+        self.get_columns_to_transform(df)
+        for col in self.columns_change_date_format:
+            df[col] = df[col].str.replace('-', '/', regex=False)
+            df[col] = pd.to_datetime(df[col], format='%Y/%m/%d %H:%M:%S')
+            df[col] = df[col].dt.tz_localize('UTC')
+            df[col] = df[col].dt.tz_convert('Europe/Paris')
+
+        for col in df.columns:
+            if col in RENAME_COLUMNS:
+                df.rename(columns={col: f"{col}_id"}, inplace=True)
+
+    async def fetch_all_data(self):
+        '''
+        Return a df with all incidents
+        '''
+        all_incidents_df = await self.fetch_all_incidents()
+
+        if all_incidents_df.empty:
+            all_incidents_df = None
+            print("No incidents fetched.")
+        else:
+            self.transform_columns(all_incidents_df)
+
+        return all_incidents_df
+
     async def fetch_all_incidents(self):
+        '''
+        Fetch all incidents chunk by chunk
+        '''
         all_incidents_df = pd.DataFrame()
-        offset = 0
+        offset = self.params['sysparm_offset']
         limit = self.params['sysparm_limit']
 
         async with aiohttp.ClientSession() as session:
@@ -169,32 +168,89 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
 
         return all_incidents_df
 
-    def transform_columns(self, df):
-        for col in df.columns:
-            if col in CHANGE_DATE_FORMAT:
-                df[col] = df[col].str.replace('-', '/', regex=False)
-                df[col] = pd.to_datetime(df[col], format='%Y/%m/%d %H:%M:%S')
+    def cache_access(self, link):
+        '''
+        Return value assignated to the link if the link exists in the cache
+        '''
+        if link in self.cache:
+            return self.cache[link]
 
-                df[col] = df[col].dt.tz_localize('UTC')
-                df[col] = df[col].dt.tz_convert('Europe/Paris')
+    async def fetch_name_from_link(self, session, link, retries=3):
+        self.cache_access(link)
 
+        attempt = 0
+        while attempt < retries:
+            async with self.semaphore:
+                try:
+                    async with session.get(link, auth=self.auth) as response:
+                        content_type = response.headers.get('Content-Type', '')
 
-        for col in df.columns:
-            if col in RENAME_COLUMNS:
-                df.rename(columns={col: f"{col}_id"}, inplace=True)
+                        if 'application/json' not in content_type:
+                            content = await response.text()
+                            print(f"Unexpected content type for {link}. Response content: {content}")
 
-    async def fetch_all_data(self):
-        all_incidents_df = await self.fetch_all_incidents()
+                        response_data = await response.json()
 
-        if all_incidents_df.empty:
-            all_incidents_df = None
-            print("No incidents fetched.")
+                        if response_data.get('result', {}).get('name'):
+                            name = response_data.get('result', {}).get('name')
+
+                            if name is not None:
+                                self.cache[link] = name
+                                return name
+
+                        elif response_data.get('result', {}).get('number'):
+                            number = response_data.get('result', {}).get('number')
+
+                            if number is not None:
+                                self.cache[link] = number
+                                return number
+
+                        else:
+                            return self.get_final_segment(link)
+
+                except aiohttp.ClientError as e:
+                    print(f"HTTP error occurred: {e} for URL: {link}")
+                    attempt += 1
+                    if attempt < retries:
+                        await asyncio.sleep(2 ** attempt)
+                    else:
+                        return self.get_final_segment(link)
+
+        return self.get_final_segment(link)
+
+    def get_final_segment(self, link):
+        '''
+        Get the last part of the link
+        '''
+        final_segment = link.rsplit('/', 1)[-1]
+
+        if final_segment == 'global':
+            self.cache[link] = final_segment
+            return final_segment
+
         else:
-            self.transform_columns(all_incidents_df)
+            self.cache[link] = None
+            return None
 
-        return all_incidents_df
+    async def transform_data(self, session, df):
+        '''
+        Get XML element from link in
+        '''
+        dict_columns = [col for col in df.columns if df[col].apply(lambda x: isinstance(x, dict)).any()]
+
+        for col in dict_columns:
+            df[col] = await asyncio.gather(
+                *[self.fetch_name_from_link(session, value['link']) if isinstance(value,
+                                                                                  dict) and 'link' in value else asyncio.sleep(
+                    0, result=value) for value in df[col]]
+            )
+
+        return df
 
     def fetch_source(self, verbose=None):
+        '''
+        Create parquet file(s) from the source
+        '''
         try:
             if self.response.status_code != 200:
                 raise Exception("Error no DB connection")
@@ -206,6 +262,7 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
                                                                           SQL_READMODE)
                     verbose.log(datetime.now(tz=timezone.utc), "FETCH", "START", log_message=message,
                                 log_request=self.request + ': ' + str(self.db_execute_bind))
+
                 self.df_table_content = pd.DataFrame()
                 data = self.response.json()
 
@@ -217,14 +274,19 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
 
                 self.df_table_content = pd.DataFrame(data)
                 res = self.__create_parquet_file__(verbose)
+
                 if not res:
                     raise Exception("Error creating parquet file")
+
                 self.__update_fetch_row_stats__()
                 elapsed = datetime.now() - self.fetch_start
+
                 if verbose:
                     message = "{0} rows in {1} seconds".format(self.total_imported_rows, elapsed)
                     verbose.log(datetime.now(tz=timezone.utc), "FETCH", "RUN", log_message=message)
+
                 return True
+
         except UnicodeDecodeError as err:
             vError = "ERROR Unicode Decode, table {}".format(self.get_bronze_source_properties().table)
             if verbose:
