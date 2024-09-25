@@ -5,9 +5,8 @@ from nlsdata.oci_lh2_bronze.oci_lh2_bronze_file import *
 from nlstools.tool_kits import *
 
 
-# Define a class BronzeSourceBuilderFileEXCEL inheriting from BronzeSourceBuilderFile
 class BronzeSourceBuilderFileEXCEL(BronzeSourceBuilderFile):
-    '''BronzeSourceBuilderFileEXCEL class'''
+    ''' Define a class BronzeSourceBuilderFileEXCEL inheriting from BronzeSourceBuilderFile'''
     
     def __init__(self, pSourceProperties:SourceProperties, pBronze_config:BronzeConfig, pBronzeDb_Manager:BronzeDbManager, pLogger:BronzeLogger):
         '''BronzeSourceBuilderFileEXCEL constructor'''
