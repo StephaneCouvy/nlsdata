@@ -105,7 +105,6 @@ class BronzeSourceBuilderDb(BronzeSourceBuilder):
 
     def fetch_source(self,verbose=None):
         '''Fetch source method
-        
         Create parquet file depending on data source (dbcursor, pandas.dataframe)
         '''
 
@@ -116,7 +115,7 @@ class BronzeSourceBuilderDb(BronzeSourceBuilder):
             # Execute a SQL query to fetch all data from the current table
             if verbose:
                 message = "Mode {2} : Extracting data {0},{1}".format(self.get_bronze_source_properties().schema, self.get_bronze_source_properties().table, SQL_READMODE)
-                verbose.log(datetime.now(tz=timezone.utc), "FETCH", "START", log_message=message, log_request = self.request + ': '+ str(self.db_execute_bind))
+                verbose.log(datetime.now(tz=timezone.utc), "FETCH", "START", log_message=message, log_request = self.request + ': ' + str(self.db_execute_bind))
 
             self.df_table_content = pd.DataFrame()
 

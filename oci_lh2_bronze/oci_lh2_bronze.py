@@ -259,7 +259,7 @@ class BronzeLogger():
 
     def __insertlog__(self):
         '''Insert log method'''
-        self.get_db().insert_namedtuple_into_table(self.instance_bronzeloggerproperties,self.logger_table_name)
+        self.get_db().insert_namedtuple_into_table(self.instance_bronzeloggerproperties, self.logger_table_name)
 
 
 class BronzeExploit:
@@ -507,7 +507,7 @@ class BronzeExploit:
                 self.verbose.log(datetime.now(tz=timezone.utc), "SET_LASTUPDATE", "START", log_message=message,
                             log_request=v_request)
     
-            v_cursor.execute(v_request,v_bindvars)
+            v_cursor.execute(v_request, v_bindvars)
             self.get_db_connection().commit()
             v_cursor.close()
     
@@ -517,7 +517,7 @@ class BronzeExploit:
             v_error = "ERROR {} with values {}".format(v_request, v_bindvars)
             
             if self.verbose:
-                self.verbose.log(datetime.now(tz=timezone.utc), "UPDATE_EXPLOIT", v_error,log_message='Oracle DB error : {}'.format(str(v_err)))
+                self.verbose.log(datetime.now(tz=timezone.utc), "UPDATE_EXPLOIT", v_error, log_message='Oracle DB error : {}'.format(str(v_err)))
             
             self.logger.log(pError=v_err, pAction=v_error)
     
@@ -810,7 +810,7 @@ class BronzeDbManager:
             
             # Execute a SQL query to fetch list of external tables of bronze layer
             v_cursor = self.get_db_connection().cursor()
-            v_sql = "select * from " + self.lh2_tables_tablename + " WHERE ENV = \'"+ self.bronzeDbManager_env +"\' AND TABLE_TYPE like \'External%\' ORDER BY OWNER,TABLE_NAME"
+            v_sql = "select * from " + self.lh2_tables_tablename + " WHERE ENV = \'" + self.bronzeDbManager_env +"\' AND TABLE_TYPE like \'External%\' ORDER BY OWNER,TABLE_NAME"
             v_log_message = "Fetch list of external tables of bronze layer {}".format(v_sql)
             
             if p_verbose:
@@ -1021,7 +1021,7 @@ class BronzeDbManager:
             os.remove(v_excel_file_tmp)
             
             v_request = "Export Excel file {} :".format(v_destination_excel_file)
-            v_log_message = "COMPLETED - "+v_request
+            v_log_message = "COMPLETED - " + v_request
             v_action = "COMPLETED"
             v_err = None
             v_return = v_destination_excel_file
@@ -1235,7 +1235,7 @@ class BronzeDbManager:
 
         v_start = datetime.now()
         v_return = False
-        v_request = "Drop tables on query {} - Simulate {}".format(p_query,str(p_simulate))
+        v_request = "Drop tables on query {} - Simulate {}".format(p_query, str(p_simulate))
         v_table_list_to_drop = None
         
         if not self.get_gather_lh2_tables_stats_status():
@@ -1297,7 +1297,7 @@ class BronzeDbManager:
                         p_verbose.log(datetime.now(tz=timezone.utc), "DROP_TABLES_QUERY", "RUNNING", log_message=v_log_message)
                     
                     if not p_simulate:
-                        if not p_bronze_exploit.update_exploit(v_dict_update_exploit,p_bronze_table_name=v_table_name):
+                        if not p_bronze_exploit.update_exploit(v_dict_update_exploit, p_bronze_table_name=v_table_name):
                                 raise Exception("ERROR - Update Exploit table {} : {}".format(v_table_name, v_dict_update_exploit)) 
                 
             v_request = "Drop tables on query {} : \n{}".format(p_query, v_table_list_to_drop)
@@ -1696,6 +1696,7 @@ class BronzeSourceBuilder:
         '''
 
         v_idx = 0
+        
         try:
             #bucket = FILESTORAGEFACTORY.create_instance(self.get_bronze_bucket_settings().filestorage_wrapper,**self.get_bronze_bucket_settings()._asdict())
             
@@ -1742,9 +1743,11 @@ class BronzeSourceBuilder:
             os.remove(f)
 
 
-    def __create_parquet_file__(self,verbose=None):
-        # Parquet file si created locally into local_workingdir
-        # Define the path and filename for the Parquet file, id on PARQUET_IDX_DIGITS digits
+    def __create_parquet_file__(self, verbose=None):
+        '''Parquet file si created locally into local_workingdir
+        Define the path and filename for the Parquet file, id on PARQUET_IDX_DIGITS digits
+        '''
+        
         self.parquet_file_id += 1
 
         parquet_file_name= '{0}{1}{2}'.format(self.parquet_file_name_template, str(self.parquet_file_id).zfill(PARQUET_IDX_DIGITS), PARQUET_FILE_EXTENSION)

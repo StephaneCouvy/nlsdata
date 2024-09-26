@@ -25,7 +25,7 @@ class NLSDataBronzeFactory():
     def load_bronze_wrappers(self):
         '''Load bronze wrappers method'''
 
-        modules = [(name,obj) for name,obj in getmembers(PACKAGE, lambda m: ismodule(m))]
+        modules = [(name, obj) for name, obj in getmembers(PACKAGE, lambda m: ismodule(m))]
         
         for module in modules:
             classes = getmembers(module[1], lambda m: isclass(m) and not isabstract(m))

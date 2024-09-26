@@ -3,6 +3,7 @@ import pandas as pd
 from nlsdata.oci_lh2_bronze.oci_lh2_bronze import *
 from nlsdata.oci_lh2_bronze.oci_lh2_bronze_file import *
 
+
 class BronzeSourceBuilderFileCSV(BronzeSourceBuilderFile):
     '''BronzeSourceBuilderFileCSV class'''
 
