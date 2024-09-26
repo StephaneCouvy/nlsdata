@@ -4,6 +4,7 @@ from nlsdata.oci_lh2_bronze.oci_lh2_bronze import *
 import aiohttp
 import asyncio
 import time
+import oracledb
 from datetime import datetime
 
 # "sysparm_limit": 1000,
@@ -178,25 +179,21 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
             LINKS_CACHE[link] = None
             return None
 
-    def fetch_value_from_link(self, link_dict):
-        link = link_dict['link']
-
-        if link in LINKS_CACHE:
-            return LINKS_CACHE[link]
-
+    def fetch_value_from_link(self, link):
         try:
             request_link = requests.get(link, auth=self.auth, params=self.params)
             data_link = request_link.json()
 
             name = data_link.get('result', {}).get('name')
-            number = data_link.get('result', {}).get('number')
 
             if name:
                 LINKS_CACHE[link] = name
                 return name
 
-            elif number:
+            elif not name:
+                number = data_link.get('result', {}).get('number')
                 LINKS_CACHE[link] = number
+
                 return number
 
             else:
@@ -209,8 +206,9 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
     def update_link_to_value(self, df):
         for col in COLUMNS_TYPE_DICT:
             for value in df[col]:
-                if value:
-                    self.fetch_value_from_link(value)
+                link = value['link']
+                if value and not link in LINKS_CACHE:
+                    self.fetch_value_from_link(link)
 
     '''async def fetch_name_from_link(self, session, link, retries=3):
         self.cache_access(link)
@@ -308,6 +306,7 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
                         data = self.transform_columns(data)
                         self.get_columns_type_dict(data)
                         self.update_link_to_value(data)
+
                     case "CPQ":
                         data = data['items']
 
@@ -329,25 +328,33 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
 
         except UnicodeDecodeError as err:
             vError = "ERROR Unicode Decode, table {}".format(self.get_bronze_source_properties().table)
+
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "FETCH", vError, log_message=str(err),
                             log_request=self.request)
             self.logger.log(pError=err, pAction=vError)
             self.__update_fetch_row_stats__()
+
             return False
+
         except oracledb.Error as err:
             vError = "ERROR Fetching table {}".format(self.get_bronze_source_properties().table)
+
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "FETCH", vError,
                             log_message='Oracle DB error: ' + str(err), log_request=self.request)
             self.logger.log(pError=err, pAction=vError)
             self.__update_fetch_row_stats__()
+
             return False
+
         except Exception as err:
             vError = "ERROR Fetching table {}".format(self.get_bronze_source_properties().table)
+
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "FETCH", vError, log_message=str(err),
                             log_request=self.request)
             self.logger.log(pError=err, pAction=vError)
             self.__update_fetch_row_stats__()
+
             return False
