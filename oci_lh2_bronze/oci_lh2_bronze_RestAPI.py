@@ -6,6 +6,8 @@ import asyncio
 import time
 from datetime import datetime
 
+# "sysparm_limit": 1000,
+# "sysparm_offset": 0
 
 '''CHANGE_DATE_FORMAT = ['sys_updated_on', 'inc_sys_updated_on', 'md_sys_updated_on', 'mi_sys_updated_on',
                       'sys_created_on', 'closed_at', 'opened_at', 'business_duration', 'activity_due', 'sla_due'
@@ -15,8 +17,10 @@ from datetime import datetime
                       'inc_calendar_duration', 'md_sys_created_on', 'inc_opened_at', 'inc_resolved_at', 'inc_closed_at', 'mi_business_duration', 'mi_duration', 'mi_start', 'mi_end']
 '''
 
+LINKS_CACHE = {}
+COLUMNS_TYPE_DICT = []
 
-RENAME_COLUMNS = ['number', 'order'] # Column's name where name is a SQL operation
+RENAME_COLUMNS = ['number', 'order']  # Column's name where name is a SQL operation
 
 
 class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
@@ -32,14 +36,13 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
         self.headers = self.source_database_param.headers
         self.endpoint = self.bronze_source_properties.table
         self.params = self.source_database_param.params
-        self.auth = aiohttp.BasicAuth(self.user, self.password)
-        self.cache = {}
-        self.semaphore = asyncio.Semaphore(10)
+        self.auth = HTTPBasicAuth(self.user, self.password)
         self.columns_change_date_format = []
 
         if self.bronze_source_properties.incremental:
-            self.params["sysparm_query"] = f"{self.bronze_source_properties.date_criteria}>{self.bronze_source_properties.last_update}"
-        self.response = requests.get(self.url + self.endpoint, auth=HTTPBasicAuth(self.user, self.password), params=self.params)
+            self.params[
+                "sysparm_query"] = f"{self.bronze_source_properties.date_criteria}>{self.bronze_source_properties.last_update}"
+        self.response = requests.get(self.url + self.endpoint, auth=self.auth, params=self.params)
 
         if self.response.status_code != 200:
             vError = "ERROR connecting to : {}".format(self.get_bronze_source_properties().name)
@@ -76,19 +79,17 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
             [f"{key}" for key in v_dict_externaltablepartition.values()]) + "/"
         self.parquet_file_id = self.__get_last_parquet_idx_in_bucket__()
 
-    async def fetch_chunk(self, session, offset, limit):
+    def fetch_chunk(self):
         '''
-        Fetch chunk where the size of each is determinated by offset
+        Fetch chunk data
         '''
-        self.params['sysparm_offset'] = offset
-        self.params['sysparm_limit'] = limit
         try:
             # Get json data
-            async with session.get(self.url + self.endpoint, auth=self.auth, params=self.params) as response:
-                data = await response.json()
-                return data.get('result', [])
+            self.response.raise_for_status()
+            data = self.response.json()
+            return data.get('result', [])
 
-        except aiohttp.ClientError as e:
+        except requests.RequestException as e:
             print(f"HTTP error occurred: {e}")
             return []
         except Exception as e:
@@ -125,57 +126,97 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
             if col in RENAME_COLUMNS:
                 df.rename(columns={col: f"{col}_id"}, inplace=True)
 
-    async def fetch_all_data(self):
+        return df
+
+    def fetch_all_data(self):
         '''
         Return a df with all incidents
         '''
-        all_incidents_df = await self.fetch_all_incidents()
+        all_incidents_df = self.fetch_all_incidents()
 
         if all_incidents_df.empty:
             all_incidents_df = None
             print("No incidents fetched.")
-        else:
-            self.transform_columns(all_incidents_df)
 
         return all_incidents_df
 
-    async def fetch_all_incidents(self):
+    def fetch_all_incidents(self):
         '''
         Fetch all incidents chunk by chunk
         '''
         all_incidents_df = pd.DataFrame()
-        offset = self.params['sysparm_offset']
-        limit = self.params['sysparm_limit']
 
-        async with aiohttp.ClientSession() as session:
-            while True:
-                start_time = time.time()
-                chunk = await self.fetch_chunk(session, offset, limit)
+        start_time = time.time()
+        chunk = self.fetch_chunk()
 
-                if not chunk:
-                    break
+        chunk_df = pd.DataFrame(chunk)
+        all_incidents_df = pd.concat([all_incidents_df, chunk_df], ignore_index=True)
+        end_time = time.time()
 
-                chunk_df = pd.DataFrame(chunk)
-                chunk_df = await self.transform_data(session, chunk_df)
-                all_incidents_df = pd.concat([all_incidents_df, chunk_df], ignore_index=True)
-                end_time = time.time()
+        chunk_time = end_time - start_time
 
-                chunk_time = end_time - start_time
-                offset += limit
-
-                print(f"Fetched {len(chunk)} incidents, total incidents so far: {len(all_incidents_df)}")
-                print(f"Time for this chunk: {chunk_time:.2f} seconds")
+        print(f"Fetched {len(chunk)} lines, total lines so far: {len(all_incidents_df)}")
+        print(f"Time for this chunk: {chunk_time:.2f} seconds")
 
         return all_incidents_df
 
-    def cache_access(self, link):
-        '''
-        Return value assignated to the link if the link exists in the cache
-        '''
-        if link in self.cache:
-            return self.cache[link]
+    def get_columns_type_dict(self, df):
+        for col in df.columns:
+            if df[col].apply(lambda x: isinstance(x, dict)).any():
+                COLUMNS_TYPE_DICT.append(col)
 
-    async def fetch_name_from_link(self, session, link, retries=3):
+    def get_final_segment(self, link):
+        final_segment = link.rsplit('/', 1)[-1]
+
+        if final_segment == 'global':
+            LINKS_CACHE[link] = final_segment
+            return final_segment
+
+        else:
+            LINKS_CACHE[link] = None
+            return None
+
+    def fetch_value_from_link(self, link):
+        if link in LINKS_CACHE:
+            return LINKS_CACHE[link]
+
+        try:
+            content_type = self.response.headers.get('Content-Type', '')
+
+            if 'application/json' not in content_type:
+                content = self.response.text
+                print(f"Unexpected content type for {link}. Response content: {content}")
+
+                response_data = self.response.json()
+
+                if response_data.get('result', {}).get('name'):
+                    name = response_data.get('result', {}).get('name')
+
+                    if name is not None:
+                        LINKS_CACHE[link] = name
+                        return name
+
+                elif response_data.get('result', {}).get('number'):
+                    number = response_data.get('result', {}).get('number')
+
+                    if number is not None:
+                        LINKS_CACHE[link] = number
+                        return number
+
+                else:
+                    return self.get_final_segment(link)
+
+        except aiohttp.ClientError as e:
+            print(f"HTTP error occurred: {e} for URL: {link}")
+            return self.get_final_segment(link)
+
+    def update_link_to_value(self, df):
+        for col in COLUMNS_TYPE_DICT:
+            for value in df[col]:
+                if value:
+                    self.fetch_value_from_link(value)
+
+    '''async def fetch_name_from_link(self, session, link, retries=3):
         self.cache_access(link)
 
         attempt = 0
@@ -195,14 +236,14 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
                             name = response_data.get('result', {}).get('name')
 
                             if name is not None:
-                                self.cache[link] = name
+                                LINK_CACHE[link] = name
                                 return name
 
                         elif response_data.get('result', {}).get('number'):
                             number = response_data.get('result', {}).get('number')
 
                             if number is not None:
-                                self.cache[link] = number
+                                LINK_CACHE[link] = number
                                 return number
 
                         else:
@@ -212,30 +253,29 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
                     print(f"HTTP error occurred: {e} for URL: {link}")
                     attempt += 1
                     if attempt < retries:
-                        await asyncio.sleep(2 ** attempt)
+                        await asyncio.sleep(1)
                     else:
                         return self.get_final_segment(link)
 
         return self.get_final_segment(link)
 
     def get_final_segment(self, link):
-        '''
-        Get the last part of the link
-        '''
+
+
         final_segment = link.rsplit('/', 1)[-1]
 
         if final_segment == 'global':
-            self.cache[link] = final_segment
+            LINK_CACHE[link] = final_segment
             return final_segment
 
         else:
-            self.cache[link] = None
+            LINK_CACHE[link] = None
             return None
 
     async def transform_data(self, session, df):
-        '''
-        Get XML element from link in
-        '''
+=
+
+
         dict_columns = [col for col in df.columns if df[col].apply(lambda x: isinstance(x, dict)).any()]
 
         for col in dict_columns:
@@ -245,7 +285,7 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
                     0, result=value) for value in df[col]]
             )
 
-        return df
+        return df'''
 
     def fetch_source(self, verbose=None):
         '''
@@ -268,11 +308,15 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
 
                 match self.get_bronze_source_properties().name:
                     case "SERVICE_NOW":
-                        data = asyncio.run(self.fetch_all_data())
+                        data = self.fetch_all_data()
+                        data = self.transform_columns(data)
+                        self.get_columns_type_dict(data)
+                        self.update_link_to_value(data)
                     case "CPQ":
                         data = data['items']
 
                 self.df_table_content = pd.DataFrame(data)
+
                 res = self.__create_parquet_file__(verbose)
 
                 if not res:
