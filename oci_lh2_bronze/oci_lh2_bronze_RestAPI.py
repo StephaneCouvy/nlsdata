@@ -42,7 +42,9 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
         if self.bronze_source_properties.incremental:
             self.params[
                 "sysparm_query"] = f"{self.bronze_source_properties.date_criteria}>{self.bronze_source_properties.last_update}"
+
         self.response = requests.get(self.url + self.endpoint, auth=self.auth, params=self.params)
+        self.response_data = self.response.json()
 
         if self.response.status_code != 200:
             vError = "ERROR connecting to : {}".format(self.get_bronze_source_properties().name)
@@ -176,35 +178,29 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
             LINKS_CACHE[link] = None
             return None
 
-    def fetch_value_from_link(self, link):
+    def fetch_value_from_link(self, link_dict):
+        link = link_dict['link']
+
         if link in LINKS_CACHE:
             return LINKS_CACHE[link]
 
         try:
-            content_type = self.response.headers.get('Content-Type', '')
+            request_link = requests.get(link, auth=self.auth, params=self.params)
+            data_link = request_link.json()
 
-            if 'application/json' not in content_type:
-                content = self.response.text
-                print(f"Unexpected content type for {link}. Response content: {content}")
+            name = data_link.get('result', {}).get('name')
+            number = data_link.get('result', {}).get('number')
 
-                response_data = self.response.json()
+            if name:
+                LINKS_CACHE[link] = name
+                return name
 
-                if response_data.get('result', {}).get('name'):
-                    name = response_data.get('result', {}).get('name')
+            elif number:
+                LINKS_CACHE[link] = number
+                return number
 
-                    if name is not None:
-                        LINKS_CACHE[link] = name
-                        return name
-
-                elif response_data.get('result', {}).get('number'):
-                    number = response_data.get('result', {}).get('number')
-
-                    if number is not None:
-                        LINKS_CACHE[link] = number
-                        return number
-
-                else:
-                    return self.get_final_segment(link)
+            else:
+                return self.get_final_segment(link)
 
         except aiohttp.ClientError as e:
             print(f"HTTP error occurred: {e} for URL: {link}")
@@ -230,17 +226,17 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
                             content = await response.text()
                             print(f"Unexpected content type for {link}. Response content: {content}")
 
-                        response_data = await response.json()
+                        self.response_data = await response.json()
 
-                        if response_data.get('result', {}).get('name'):
-                            name = response_data.get('result', {}).get('name')
+                        if self.response_data.get('result', {}).get('name'):
+                            name = self.response_data.get('result', {}).get('name')
 
                             if name is not None:
                                 LINK_CACHE[link] = name
                                 return name
 
-                        elif response_data.get('result', {}).get('number'):
-                            number = response_data.get('result', {}).get('number')
+                        elif self.response_data.get('result', {}).get('number'):
+                            number = self.response_data.get('result', {}).get('number')
 
                             if number is not None:
                                 LINK_CACHE[link] = number
