@@ -1,3 +1,4 @@
+import pandas as pd
 import requests
 from requests.auth import HTTPBasicAuth
 from nlsdata.oci_lh2_bronze.oci_lh2_bronze import *
@@ -90,7 +91,9 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
             # Get json data
             self.response.raise_for_status()
             data = self.response.json()
-            return data.get('result', [])
+            tmp = data.get('result', [])
+            df = pd.DataFrame(tmp)
+            return df
 
         except requests.RequestException as e:
             print(f"HTTP error occurred: {e}")
@@ -135,31 +138,11 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
         '''
         Return a df with all incidents
         '''
-        all_incidents_df = self.fetch_all_incidents()
+        all_incidents_df = self.fetch_chunk()
 
         if all_incidents_df.empty:
             all_incidents_df = None
-            print("No incidents fetched.")
-
-        return all_incidents_df
-
-    def fetch_all_incidents(self):
-        '''
-        Fetch all incidents chunk by chunk
-        '''
-        all_incidents_df = pd.DataFrame()
-
-        start_time = time.time()
-        chunk = self.fetch_chunk()
-
-        chunk_df = pd.DataFrame(chunk)
-        all_incidents_df = pd.concat([all_incidents_df, chunk_df], ignore_index=True)
-        end_time = time.time()
-
-        chunk_time = end_time - start_time
-
-        print(f"Fetched {len(chunk)} lines, total lines so far: {len(all_incidents_df)}")
-        print(f"Time for this chunk: {chunk_time:.2f} seconds")
+            print("No data fetched.")
 
         return all_incidents_df
 
@@ -209,81 +192,13 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
             for value in df[col]:
                 if value:
                     link = value['link']
-                    if link not in LINKS_CACHE:
-                        df[value] = self.fetch_value_from_link(link)
+
+                    if link in LINKS_CACHE:
+                        df[col][value] = LINKS_CACHE[link]
+                    else:
+                        df[col][value] = self.fetch_value_from_link(link)
 
         return df
-
-    '''async def fetch_name_from_link(self, session, link, retries=3):
-        self.cache_access(link)
-
-        attempt = 0
-        while attempt < retries:
-            async with self.semaphore:
-                try:
-                    async with session.get(link, auth=self.auth) as response:
-                        content_type = response.headers.get('Content-Type', '')
-
-                        if 'application/json' not in content_type:
-                            content = await response.text()
-                            print(f"Unexpected content type for {link}. Response content: {content}")
-
-                        self.response_data = await response.json()
-
-                        if self.response_data.get('result', {}).get('name'):
-                            name = self.response_data.get('result', {}).get('name')
-
-                            if name is not None:
-                                LINK_CACHE[link] = name
-                                return name
-
-                        elif self.response_data.get('result', {}).get('number'):
-                            number = self.response_data.get('result', {}).get('number')
-
-                            if number is not None:
-                                LINK_CACHE[link] = number
-                                return number
-
-                        else:
-                            return self.get_final_segment(link)
-
-                except aiohttp.ClientError as e:
-                    print(f"HTTP error occurred: {e} for URL: {link}")
-                    attempt += 1
-                    if attempt < retries:
-                        await asyncio.sleep(1)
-                    else:
-                        return self.get_final_segment(link)
-
-        return self.get_final_segment(link)
-
-    def get_final_segment(self, link):
-
-
-        final_segment = link.rsplit('/', 1)[-1]
-
-        if final_segment == 'global':
-            LINK_CACHE[link] = final_segment
-            return final_segment
-
-        else:
-            LINK_CACHE[link] = None
-            return None
-
-    async def transform_data(self, session, df):
-=
-
-
-        dict_columns = [col for col in df.columns if df[col].apply(lambda x: isinstance(x, dict)).any()]
-
-        for col in dict_columns:
-            df[col] = await asyncio.gather(
-                *[self.fetch_name_from_link(session, value['link']) if isinstance(value,
-                                                                                  dict) and 'link' in value else asyncio.sleep(
-                    0, result=value) for value in df[col]]
-            )
-
-        return df'''
 
     def fetch_source(self, verbose=None):
         '''
@@ -308,8 +223,6 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
                 match self.get_bronze_source_properties().name:
                     case "SERVICE_NOW":
                         data = self.fetch_all_data()
-                        '''for col in data.columns:
-                            print(col)'''
                         data = self.transform_columns(data)
                         self.get_columns_type_dict(data)
                         start_time = time.time()
