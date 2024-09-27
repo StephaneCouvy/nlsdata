@@ -205,10 +205,14 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
 
     def update_link_to_value(self, df):
         for col in COLUMNS_TYPE_DICT:
+            print(col)
             for value in df[col]:
-                link = value['link']
-                if value and not link in LINKS_CACHE:
-                    self.fetch_value_from_link(link)
+                if value:
+                    link = value['link']
+                    if link not in LINKS_CACHE:
+                        df[value] = self.fetch_value_from_link(link)
+
+        return df
 
     '''async def fetch_name_from_link(self, session, link, retries=3):
         self.cache_access(link)
@@ -300,12 +304,20 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
                 self.df_table_content = pd.DataFrame()
                 data = self.response.json()
 
+                # TODO: manage different case between SERVICENOW and CPQ
                 match self.get_bronze_source_properties().name:
                     case "SERVICE_NOW":
                         data = self.fetch_all_data()
+                        '''for col in data.columns:
+                            print(col)'''
                         data = self.transform_columns(data)
                         self.get_columns_type_dict(data)
+                        start_time = time.time()
                         self.update_link_to_value(data)
+                        end_time = time.time()
+
+                        traitment_link_time = end_time - start_time
+                        print(traitment_link_time)
 
                     case "CPQ":
                         data = data['items']
