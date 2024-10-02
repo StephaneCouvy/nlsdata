@@ -18,16 +18,20 @@ from datetime import datetime
                       'inc_u_duration_calc', 'mi_sys_created_on', 'inc_sys_created_on', 'inc_business_duration', 'due_date'
                       'inc_calendar_duration', 'md_sys_created_on', 'inc_opened_at', 'inc_resolved_at', 'inc_closed_at', 'mi_business_duration', 'mi_duration', 'mi_start', 'mi_end']
 '''
-
 LINKS_CACHE = {}
 COLUMNS_TYPE_DICT = []
 
-RENAME_COLUMNS = ['number', 'order']  # Column's name where name is a SQL operation
+# Column's name where name is a SQL operation
+RENAME_COLUMNS = ['number', 'order']
 
 
 class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
+    '''BronzeSourceBuilderRestAPI class'''
+
     def __init__(self, pSourceProperties: SourceProperties, pBronze_config: BronzeConfig,
                  pBronzeDb_Manager: BronzeDbManager, pLogger: BronzeLogger):
+        '''BronzeSourceBuilderRestAPI constructor'''
+
         vSourceProperties = pSourceProperties._replace(type="REST_API")
         super().__init__(vSourceProperties, pBronze_config, pBronzeDb_Manager, pLogger)
         self.source_database_param = get_parser_config_settings("rest_api")(self.bronze_config.get_configuration_file(),
@@ -52,7 +56,10 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
             vError = "ERROR connecting to : {}".format(self.get_bronze_source_properties().name)
             raise Exception(vError)
 
+
     def get_bronze_row_lastupdate_date(self):
+        '''Get Bronze row lasupdate date method'''
+
         if not self.bronze_date_lastupdated_row:
             v_dict_join = self.get_externaltablepartition_properties()._asdict()
             v_join = " AND ".join(
@@ -65,10 +72,14 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
 
         return self.bronze_date_lastupdated_row
 
+
     def __set_bronze_bucket_proxy__(self):
+        '''Set Bronze bucket proxy method'''
         self.bronze_bucket_proxy.set_bucket_by_extension(p_bucket_extension=self.get_bronze_source_properties().name)
 
+
     def __set_bronze_table_settings__(self):
+        '''Set Bronze bucket proxy method'''
         v_bronze_table_name = self.get_bronze_source_properties().bronze_table_name
 
         if not v_bronze_table_name:
@@ -83,29 +94,31 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
             [f"{key}" for key in v_dict_externaltablepartition.values()]) + "/"
         self.parquet_file_id = self.__get_last_parquet_idx_in_bucket__()
 
+
     def fetch_chunk(self):
-        '''
-        Fetch chunk data
-        '''
+        '''Fetch chunk data method'''
+    
         try:
             # Get json data
             self.response.raise_for_status()
             data = self.response.json()
             tmp = data.get('result', [])
             df = pd.DataFrame(tmp)
+            
             return df
 
         except requests.RequestException as e:
             print(f"HTTP error occurred: {e}")
             return []
+        
         except Exception as e:
             print(f"An unexpected error occurred: {e}")
             return []
 
+
     def get_columns_to_transform(self, df):
-        '''
-        Get columns from df where date format is str(yyy-MM-DD HH:MM:SS)
-        '''
+        '''Get columns from df where date format is str(yyy-MM-DD HH:MM:SS)'''
+        
         for col in df.columns:
             first_non_null_value = next((value for value in df[col] if pd.notnull(value)), None)
 
@@ -114,14 +127,16 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
                     # Test if conversion is possible
                     datetime.strptime(first_non_null_value, "%Y-%m-%d %H:%M:%S")
                     self.columns_change_date_format.append(col)
+                
                 except ValueError:
                     pass
 
+
     def transform_columns(self, df):
-        '''
-        Change date format, timezone, and columns where column's name is a SQL operation
-        '''
+        '''Change date format, timezone, and columns where column's name is a SQL operation'''
+
         self.get_columns_to_transform(df)
+
         for col in self.columns_change_date_format:
             df[col] = df[col].str.replace('-', '/', regex=False)
             df[col] = pd.to_datetime(df[col], format='%Y/%m/%d %H:%M:%S')
@@ -134,10 +149,10 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
 
         return df
 
+
     def fetch_all_data(self):
-        '''
-        Return a df with all incidents
-        '''
+        ''' Return a df with all incidents'''
+
         all_incidents_df = self.fetch_chunk()
 
         if all_incidents_df.empty:
@@ -146,12 +161,17 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
 
         return all_incidents_df
 
+
     def get_columns_type_dict(self, df):
+        '''Get columns type dict method'''
         for col in df.columns:
             if df[col].apply(lambda x: isinstance(x, dict)).any():
                 COLUMNS_TYPE_DICT.append(col)
 
+
     def get_final_segment(self, link):
+        '''Get final segment method'''
+        
         final_segment = link.rsplit('/', 1)[-1]
 
         if final_segment == 'global':
@@ -162,7 +182,10 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
             LINKS_CACHE[link] = None
             return None
 
+
     def fetch_value_from_link(self, link):
+        '''Fetch value from link method'''
+
         try:
             request_link = requests.get(link, auth=self.auth, params=self.params)
             data_link = request_link.json()
@@ -186,7 +209,9 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
             print(f"HTTP error occurred: {e} for URL: {link}")
             return self.get_final_segment(link)
 
+
     def update_link_to_value(self, df):
+        '''Update link to value method'''
         for col in COLUMNS_TYPE_DICT:
             print(col)
             for value in df[col]:
@@ -200,10 +225,10 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
 
         return df
 
+
     def fetch_source(self, verbose=None):
-        '''
-        Create parquet file(s) from the source
-        '''
+        '''Create parquet file(s) from the source'''
+
         try:
             if self.response.status_code != 200:
                 raise Exception("Error no DB connection")
