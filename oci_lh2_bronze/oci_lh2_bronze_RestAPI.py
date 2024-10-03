@@ -75,14 +75,11 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
         # Database password
         self.password = self.source_database_param.password
 
-        self.headers = self.source_database_param.headers
-
-        self.endpoint = self.bronze_source_properties.table
-        self.params = self.source_database_param.params
-
         self.auth = HTTPBasicAuth(self.user, self.password)
-
         self.columns_change_date_format = []
+        self.endpoint = self.bronze_source_properties.table
+        self.headers = self.source_database_param.headers
+        self.params = self.source_database_param.params
 
         if self.bronze_source_properties.incremental:
             self.params[
@@ -144,7 +141,7 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
             return df
 
         except Exception as e:
-            print(f"An unexpected error occurred: {e}")
+            print(f"Error: An unexpected error occurred: {e}")
             return []
 
     def set_columns_to_transform(self, df : DataFrame) -> None:
@@ -201,6 +198,7 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
 
             if name:
                 LINKS_CACHE[link] = name
+
                 return name
 
             elif not name:
