@@ -8,16 +8,19 @@ import time
 from datetime import datetime
 from duckdb.experimental.spark import DataFrame
 from typing import AnyStr, Any
+
+from pandas.core.interchange.dataframe_protocol import Column
+
 from nlsdata.oci_lh2_bronze.oci_lh2_bronze import *
 from requests.auth import HTTPBasicAuth
 
-'''CHANGE_DATE_FORMAT = ['sys_updated_on', 'inc_sys_updated_on', 'md_sys_updated_on', 'mi_sys_updated_on',
+CHANGE_DATE_FORMAT = ['sys_updated_on', 'inc_sys_updated_on', 'md_sys_updated_on', 'mi_sys_updated_on',
                       'sys_created_on', 'closed_at', 'opened_at', 'business_duration', 'activity_due', 'sla_due'
                       'calendar_duration', 'requested_by_date', 'approval_set', 'end_date', 'work_start', 'start_date',
                       'work_end', 'conflict_last_run', 'resolved_at', 'u_duration_calc', 'reopened_time', 'u_state_changed_date',
                       'inc_u_duration_calc', 'mi_sys_created_on', 'inc_sys_created_on', 'inc_business_duration', 'due_date'
                       'inc_calendar_duration', 'md_sys_created_on', 'inc_opened_at', 'inc_resolved_at', 'inc_closed_at', 'mi_business_duration', 'mi_duration', 'mi_start', 'mi_end']
-'''
+
 LINKS_CACHE = {}
 COLUMNS_TYPE_DICT = []
 
@@ -25,12 +28,33 @@ COLUMNS_TYPE_DICT = []
 RENAME_COLUMNS = ['number', 'order']
 
 
+def set_columns_type_dict(df : DataFrame) -> None:
+    """Get columns type dict method"""
+    for col in df.columns:
+        if df[col].apply(lambda x: isinstance(x, dict)).any():
+            COLUMNS_TYPE_DICT.append(col)
+
+
+def get_final_segment(link : str) -> Any | None:
+    """Get final segment method"""
+
+    final_segment = link.rsplit('/', 1)[-1]
+
+    if final_segment == 'global':
+        LINKS_CACHE[link] = final_segment
+        return final_segment
+
+    else:
+        LINKS_CACHE[link] = None
+        return None
+
+
 class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
-    '''BronzeSourceBuilderRestAPI class'''
+    """BronzeSourceBuilderRestAPI class"""
 
     def __init__(self, pSourceProperties: SourceProperties, pBronze_config: BronzeConfig,
                  pBronzeDb_Manager: BronzeDbManager, pLogger: BronzeLogger):
-        '''BronzeSourceBuilderRestAPI constructor'''
+        """BronzeSourceBuilderRestAPI constructor"""
 
         # Set source properties to REST_API
         vSourceProperties = pSourceProperties._replace(type="REST_API")
@@ -72,7 +96,7 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
             raise Exception(vError)
 
     def get_bronze_row_lastupdate_date(self) -> Any:
-        '''Get Bronze row lasupdate date method'''
+        """Get Bronze row lasupdate date method"""
 
         if not self.bronze_date_lastupdated_row:
             v_dict_join = self.get_externaltablepartition_properties()._asdict()
@@ -81,24 +105,21 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
                  v_dict_join.items()])
 
             self.bronze_date_lastupdated_row = \
-                self.get_bronzedb_manager().get_bronze_lastupdated_row(self.bronze_table,
-                                                                       self.bronze_source_properties.date_criteria,
-                                                                       v_join)
+                self.get_bronzedb_manager().get_bronze_lastupdated_row(self.bronze_table, self.bronze_source_properties.date_criteria, v_join)
 
         return self.bronze_date_lastupdated_row
 
     def __set_bronze_bucket_proxy__(self) -> None:
-        '''Set Bronze bucket proxy method'''
+        """Set Bronze bucket proxy method"""
         self.bronze_bucket_proxy.set_bucket_by_extension(p_bucket_extension=self.get_bronze_source_properties().name)
 
     def __set_bronze_table_settings__(self) -> None:
-        '''Set Bronze bucket proxy method'''
+        """Set Bronze bucket proxy method"""
         v_bronze_table_name = self.get_bronze_source_properties().bronze_table_name
 
         if not v_bronze_table_name:
             v_bronze_table_name = self.bronze_table = self.get_bronze_source_properties().name \
-                                                      + "_" + self.get_bronze_source_properties().schema + "_" + self.get_bronze_source_properties().table.replace(
-                " ", "_")
+            + "_" + self.get_bronze_source_properties().schema + "_" + self.get_bronze_source_properties().table.replace(" ", "_")
 
         self.bronze_table = v_bronze_table_name.upper()
         self.parquet_file_name_template = self.bronze_table
@@ -111,7 +132,7 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
         self.parquet_file_id = self.__get_last_parquet_idx_in_bucket__()
 
     def fetch_chunk(self) -> [] | DataFrame:
-        '''Fetch chunk data method'''
+        """Fetch chunk data method"""
 
         try:
             # Get json data
@@ -127,7 +148,7 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
             return []
 
     def set_columns_to_transform(self, df : DataFrame) -> None:
-        '''Get columns from df where date format is str(yyy-MM-DD HH:MM:SS)'''
+        """Get columns from df where date format is str(yyy-MM-DD HH:MM:SS)"""
 
         for col in df.columns:
             first_non_null_value = next((value for value in df[col] if pd.notnull(value)), None)
@@ -142,7 +163,7 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
                     pass
 
     def transform_columns(self, df : DataFrame) -> DataFrame:
-        '''Change date format, timezone, and columns where column's name is a SQL operation'''
+        """Change date format, timezone, and columns where column's name is a SQL operation"""
 
         self.set_columns_to_transform(df)
 
@@ -159,7 +180,7 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
         return df
 
     def fetch_all_data(self) -> DataFrame | list | None:
-        ''' Return a df with all incidents'''
+        """Return a df with all incidents"""
 
         all_incidents_df = self.fetch_chunk()
 
@@ -169,27 +190,8 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
 
         return all_incidents_df
 
-    def set_columns_type_dict(self, df : DataFrame) -> None:
-        '''Get columns type dict method'''
-        for col in df.columns:
-            if df[col].apply(lambda x: isinstance(x, dict)).any():
-                COLUMNS_TYPE_DICT.append(col)
-
-    def get_final_segment(self, link : str) -> Any | None:
-        '''Get final segment method'''
-
-        final_segment = link.rsplit('/', 1)[-1]
-
-        if final_segment == 'global':
-            LINKS_CACHE[link] = final_segment
-            return final_segment
-
-        else:
-            LINKS_CACHE[link] = None
-            return None
-
     def fetch_value_from_link(self, link : str):
-        '''Fetch value from link method'''
+        """Fetch value from link method"""
 
         try:
             request_link = requests.get(link, auth=self.auth, params=self.params)
@@ -208,14 +210,14 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
                 return number
 
             else:
-                return self.get_final_segment(link)
+                return get_final_segment(link)
 
-        except aiohttp.ClientError as e:
-            print(f"HTTP error occurred: {e} for URL: {link}")
-            return self.get_final_segment(link)
+        except Exception as e:
+            print(f"Error: HTTP invalid behavior occurred: {e} for URL: {link}")
+            return get_final_segment(link)
 
     def update_link_to_value(self, df : DataFrame) -> None:
-        '''Update link to value method'''
+        """Update link to value method"""
         for col in COLUMNS_TYPE_DICT:
             for value in df[col]:
                 if value:
@@ -225,10 +227,10 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
                         df[col][value] = LINKS_CACHE[link]
 
                     else:
-                        df[col][value] = self.fetch_value_from_link(link)
+                        df[col][value] = self.fetch_value_from_link(str(link))
 
     def fetch_source(self, verbose=None) -> bool:
-        '''Create parquet file(s) from the source'''
+        """Create parquet file(s) from the source"""
 
         try:
             if self.response.status_code != 200:
@@ -257,7 +259,7 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
                             return False
 
                         if data:
-                            self.set_columns_type_dict(data)
+                            set_columns_type_dict(data)
                         else:
                             return False
 
