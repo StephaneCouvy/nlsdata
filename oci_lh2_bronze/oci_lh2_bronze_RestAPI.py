@@ -28,14 +28,15 @@ RENAME_COLUMNS = ['number', 'order']
 class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
     '''BronzeSourceBuilderRestAPI class'''
 
-    def __init__(self, pSourceProperties: SourceProperties, pBronze_config: BronzeConfig,
-                 pBronzeDb_Manager: BronzeDbManager, pLogger: BronzeLogger):
+    def __init__(self, pSourceProperties: SourceProperties, pBronze_config: BronzeConfig, pBronzeDb_Manager: BronzeDbManager, pLogger: BronzeLogger):
         '''BronzeSourceBuilderRestAPI constructor'''
 
         vSourceProperties = pSourceProperties._replace(type="REST_API")
         super().__init__(vSourceProperties, pBronze_config, pBronzeDb_Manager, pLogger)
-        self.source_database_param = get_parser_config_settings("rest_api")(self.bronze_config.get_configuration_file(),
-                                                                            self.get_bronze_source_properties().name)
+        
+        self.source_database_param = \
+            get_parser_config_settings("rest_api")(self.bronze_config.get_configuration_file(), self.get_bronze_source_properties().name)
+        
         self.url = self.source_database_param.url
         self.user = self.source_database_param.user
         self.password = self.source_database_param.password
@@ -62,13 +63,11 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
 
         if not self.bronze_date_lastupdated_row:
             v_dict_join = self.get_externaltablepartition_properties()._asdict()
-            v_join = " AND ".join(
-                [f"{INVERTED_EXTERNAL_TABLE_PARTITION_SYNONYMS.get(key, key)} = '{value}'" for key, value in
+            v_join = " AND ".join([f"{INVERTED_EXTERNAL_TABLE_PARTITION_SYNONYMS.get(key, key)} = '{value}'" for key, value in
                  v_dict_join.items()])
 
-            self.bronze_date_lastupdated_row = self.get_bronzedb_manager().get_bronze_lastupdated_row(self.bronze_table,
-                                                                                                      self.bronze_source_properties.date_criteria,
-                                                                                                      v_join)
+            self.bronze_date_lastupdated_row = \
+                self.get_bronzedb_manager().get_bronze_lastupdated_row(self.bronze_table, self.bronze_source_properties.date_criteria, v_join)
 
         return self.bronze_date_lastupdated_row
 
@@ -83,15 +82,14 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
         v_bronze_table_name = self.get_bronze_source_properties().bronze_table_name
 
         if not v_bronze_table_name:
-            v_bronze_table_name = self.bronze_table = self.get_bronze_source_properties().name + "_" + self.get_bronze_source_properties().schema + "_" + self.get_bronze_source_properties().table.replace(
-                " ", "_")
+            v_bronze_table_name = self.bronze_table = self.get_bronze_source_properties().name \
+                + "_" + self.get_bronze_source_properties().schema + "_" + self.get_bronze_source_properties().table.replace(" ", "_")
 
         self.bronze_table = v_bronze_table_name.upper()
         self.parquet_file_name_template = self.bronze_table
         self.parquet_file_id = 0
         v_dict_externaltablepartition = self.get_externaltablepartition_properties()._asdict()
-        self.bucket_file_path = self.get_bronze_source_properties().schema + "/" + '/'.join(
-            [f"{key}" for key in v_dict_externaltablepartition.values()]) + "/"
+        self.bucket_file_path = self.get_bronze_source_properties().schema + "/" + '/'.join([f"{key}" for key in v_dict_externaltablepartition.values()]) + "/"
         self.parquet_file_id = self.__get_last_parquet_idx_in_bucket__()
 
 
@@ -213,13 +211,13 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
     def update_link_to_value(self, df):
         '''Update link to value method'''
         for col in COLUMNS_TYPE_DICT:
-            print(col)
             for value in df[col]:
                 if value:
                     link = value['link']
 
                     if link in LINKS_CACHE:
                         df[col][value] = LINKS_CACHE[link]
+                    
                     else:
                         df[col][value] = self.fetch_value_from_link(link)
 
@@ -231,15 +229,15 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
 
         try:
             if self.response.status_code != 200:
-                raise Exception("Error no DB connection")
+                raise Exception("Error: no DB connection")
 
             else:
                 if verbose:
                     message = "Mode {2} : Extracting data {0},{1}".format(self.get_bronze_source_properties().schema,
-                                                                          self.get_bronze_source_properties().table,
-                                                                          SQL_READMODE)
+                        self.get_bronze_source_properties().table, SQL_READMODE)
+                    
                     verbose.log(datetime.now(tz=timezone.utc), "FETCH", "START", log_message=message,
-                                log_request=self.request + ': ' + str(self.db_execute_bind))
+                        log_request=self.request + ': ' + str(self.db_execute_bind))
 
                 self.df_table_content = pd.DataFrame()
                 data = self.response.json()
@@ -265,7 +263,7 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
                 res = self.__create_parquet_file__(verbose)
 
                 if not res:
-                    raise Exception("Error creating parquet file")
+                    raise Exception("Error: creating parquet file")
 
                 self.__update_fetch_row_stats__()
                 elapsed = datetime.now() - self.fetch_start
@@ -277,34 +275,50 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
                 return True
 
         except UnicodeDecodeError as err:
-            vError = "ERROR Unicode Decode, table {}".format(self.get_bronze_source_properties().table)
+            vError = "Error: Unicode Decode, table {}".format(self.get_bronze_source_properties().table)
 
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "FETCH", vError, log_message=str(err),
                             log_request=self.request)
+            
             self.logger.log(pError=err, pAction=vError)
             self.__update_fetch_row_stats__()
 
             return False
 
         except oracledb.Error as err:
-            vError = "ERROR Fetching table {}".format(self.get_bronze_source_properties().table)
+            vError = "Error: Fetching table {}".format(self.get_bronze_source_properties().table)
 
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "FETCH", vError,
                             log_message='Oracle DB error: ' + str(err), log_request=self.request)
+            
             self.logger.log(pError=err, pAction=vError)
             self.__update_fetch_row_stats__()
 
             return False
 
         except Exception as err:
-            vError = "ERROR Fetching table {}".format(self.get_bronze_source_properties().table)
+            vError = "Error: Fetching table {}".format(self.get_bronze_source_properties().table)
 
             if verbose:
                 verbose.log(datetime.now(tz=timezone.utc), "FETCH", vError, log_message=str(err),
                             log_request=self.request)
+            
             self.logger.log(pError=err, pAction=vError)
             self.__update_fetch_row_stats__()
 
             return False
+    
+    def printTest():
+        print('Test')
+
+
+def main() -> int:
+    api = BronzeSourceBuilderRestAPI()
+    api.printTest()
+    return 0
+
+
+if __name__ == "__main__":
+    main()
