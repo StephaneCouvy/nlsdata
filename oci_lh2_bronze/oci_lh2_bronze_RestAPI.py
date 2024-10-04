@@ -7,7 +7,7 @@ import time
 
 from datetime import datetime
 from duckdb.experimental.spark import DataFrame
-from typing import AnyStr, Any
+from typing import AnyStr, Any, Union
 
 from pandas.core.interchange.dataframe_protocol import Column
 
@@ -128,7 +128,7 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
             [f"{key}" for key in v_dict_externaltablepartition.values()]) + "/"
         self.parquet_file_id = self.__get_last_parquet_idx_in_bucket__()
 
-    def fetch_chunk(self) -> [] | DataFrame:
+    def fetch_chunk(self) -> Union[list, pd.DataFrame]:
         """Fetch chunk data method"""
 
         try:
@@ -176,7 +176,7 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
 
         return df
 
-    def fetch_all_data(self) -> DataFrame | list | None:
+    def fetch_all_data(self) -> Union[DataFrame | list | None]:
         """Return a df with all incidents"""
 
         all_incidents_df = self.fetch_chunk()
