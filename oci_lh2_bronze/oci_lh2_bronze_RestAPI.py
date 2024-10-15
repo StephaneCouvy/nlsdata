@@ -181,6 +181,7 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
 
         all_incidents_df = self.fetch_chunk()
 
+        # Check if 'all_incidents_df' is empty
         if all_incidents_df.empty:
             print("No data fetched.")
             return None
@@ -210,12 +211,15 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
             else:
                 return get_final_segment(link)
 
+        # Manage exception thrown
         except Exception as e:
             print(f"Error: HTTP invalid behavior occurred: {e} for URL: {link}")
             return get_final_segment(link)
 
     def update_link_to_value(self, df : DataFrame) -> None:
         """Update link to value method"""
+
+        # Browse registered columns type dictionary
         for col in COLUMNS_TYPE_DICT:
             for value in df[col]:
                 if value:
@@ -231,10 +235,12 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
         """Create parquet file(s) from the source"""
 
         try:
+            # Check response status code, on 200 throw an Exception
             if self.response.status_code != 200:
                 raise Exception("Error: no DB connection")
 
             else:
+                # On verbose mode, prepare log messages
                 if verbose:
                     message = "Mode {2} : Extracting data {0},{1}".format(self.get_bronze_source_properties().schema,
                                                                           self.get_bronze_source_properties().table,
@@ -247,15 +253,21 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
                 data = self.response.json()
 
                 # TODO: manage different case between SERVICENOW and CPQ
+
+                # Manage every type of source properties
                 match self.get_bronze_source_properties().name:
+
+                    # Manage Service_Now source
                     case "SERVICE_NOW":
                         data = self.fetch_all_data()
 
+                        # Data None check
                         if data:
                             data = self.transform_columns(data)
                         else:
                             return False
 
+                        # Data None check
                         if data:
                             set_columns_type_dict(data)
                         else:
@@ -271,6 +283,7 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
 
                         print(treatment_link_time)
 
+                    # Manage CPQ source
                     case "CPQ":
                         data = data['items']
 
@@ -278,6 +291,7 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
 
                 res = self.__create_parquet_file__(verbose)
 
+                # Res None check
                 if not res:
                     raise Exception("Error: creating parquet file")
 
@@ -285,6 +299,7 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
 
                 elapsed = datetime.now() - self.fetch_start
 
+                # On verbose mode, prepare log messages
                 if verbose:
                     message = "{0} rows in {1} seconds".format(self.total_imported_rows, elapsed)
                     verbose.log(datetime.now(tz=timezone.utc), "FETCH", "RUN", log_message=message)
@@ -293,15 +308,20 @@ class BronzeSourceBuilderRestAPI(BronzeSourceBuilder):
 
         # Manage every exception thrown, and print depending on exception type
         except (UnicodeDecodeError, oracledb.Error, Exception) as err:
+
+            # Manage Unicode exceptions
             if isinstance(err, UnicodeDecodeError):
                 vError = "Error: Unicode Decode, table {}".format(self.get_bronze_source_properties().table)
 
+            # Manage Oracle exceptions
             elif isinstance(err, oracledb.Error):
                 vError = "Error: Fetching table {}".format(self.get_bronze_source_properties().table)
 
+            # Manage other exceptions
             else:
                 vError = "Error: Fetching table {}".format(self.get_bronze_source_properties().table)
 
+            # On verbose mode, prepare log messages
             if verbose:
                 log_message = str(err) if not isinstance(err, oracledb.Error) else 'Oracle DB error: ' + str(err)
                 verbose.log(datetime.now(tz=timezone.utc), "FETCH", vError, log_message=log_message,

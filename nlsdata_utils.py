@@ -1,3 +1,5 @@
+from socket import socket
+
 from nlstools.tool_kits import *
 
 def format_log_filename(p_filename, p_prefix_name):

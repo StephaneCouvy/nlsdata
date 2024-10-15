@@ -1,8 +1,9 @@
-import socket
+import oracledb
 import os
 import os.path
 import pyarrow.parquet as pq
 import pandas as pd
+import socket as socks
 
 from nlstools.config_settings import *
 from nlstools.tool_kits import *
@@ -137,7 +138,7 @@ class BronzeLogger():
             self.logger_oracledb_connection = self.get_db().create_db_connection(self.get_db_parameters())
 
             # Set Process_info = hostname:user:pid
-            vProcess_info = "{}:{}:{}".format(socket.gethostname(),os.getlogin(),os.getpid())
+            vProcess_info = "{}:{}:{}".format(socks.gethostname(),os.getlogin(),os.getpid())
             self.BronzeLoggerProperties = self.get_db().create_namedtuple_from_table('BronzeLoggerProperties',self.logger_table_name)
             #self.instance_bronzeloggerproperties = self.BronzeLoggerProperties(START_TIME=datetime.now(tz=timezone.utc),END_TIME=None, ENVIRONMENT=self.env,ACTION='',SRC_NAME='',SRC_ORIGIN_NAME='',SRC_OBJECT_NAME='',REQUEST='',ERROR_TYPE='',ERROR_MESSAGE='',STAT_ROWS_COUNT=0,STAT_ROWS_SIZE=0,STAT_TOTAL_DURATION=0,STAT_FETCH_DURATION=0,STAT_UPLOAD_PARQUETS_DURATION=0,STAT_SENT_PARQUETS_COUNT=0,STAT_SENT_PARQUETS_SIZE=0)
             self.instance_bronzeloggerproperties = self.BronzeLoggerProperties(START_TIME=datetime.now(tz=timezone.utc),ENVIRONMENT=self.logger_env,PROCESS_INFO=vProcess_info)
