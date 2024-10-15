@@ -1,4 +1,4 @@
-from socket import socket
+import socket as socks1
 
 from nlstools.tool_kits import *
 
@@ -16,7 +16,7 @@ def format_log_filename(p_filename, p_prefix_name):
 def format_temporary_tablename(p_tablename):
     # Create running/temporary List Datasource loading table.
     # Insert list of tables to import
-    hostname = socket.gethostname()
+    hostname = socks1.gethostname()
     pid = os.getpid()
     # Temporary table name
     v_temp_table = p_tablename.upper() + '_TEMP_' + str(hostname) + "_" + str(pid)
